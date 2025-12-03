@@ -27,3 +27,7 @@ project/linux/msvc-remote/Boxedwine/Boxedwine/bin/
 project/linux/msvc-remote/Boxedwine/Boxedwine/obj/
 **/xcuserdata/*
 lib/mac
+
+
+
+project/emscripten/Build
