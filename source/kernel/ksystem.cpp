@@ -332,6 +332,29 @@ void KSystem::printStacks() {
     }
 }
 
+void KSystem::dumpAllThreads() {
+    int total = 0, scheduled = 0, waiting = 0;
+    for (auto& pentry : KSystem::processes) {
+        const KProcessPtr& process = pentry.value;
+        if (!process) continue;
+        for (auto& tentry : process->threads) {
+            KThread* t = tentry.value;
+            if (!t || !t->cpu) continue;
+            total++;
+            bool blocked = (t->waitingCond != nullptr) || t->condTimer.active;
+            if (blocked) waiting++; else scheduled++;
+            klog_fmt("[thr] pid=%04X tid=%04X %s eip=%08X cond=%s timer=%d proc=%s",
+                     process->id, t->id,
+                     blocked ? "WAIT " : "SCHED",
+                     t->cpu->eip.u32,
+                     t->waitingCond ? t->waitingCond->name.c_str() : "-",
+                     t->condTimer.active ? 1 : 0,
+                     process->name.c_str());
+        }
+    }
+    klog_fmt("[diag] total=%d scheduled=%d waiting=%d", total, scheduled, waiting);
+}
+
 U32 KSystem::kill(S32 pid, U32 signal) {
     KProcessPtr process;
     {

@@ -374,11 +374,25 @@ void requestLoadState() {
     loadStateRequested = true;
 }
 
-// Diagnostic stubs for the test harness (keep the signature stable).
+// Diagnostic helpers for scheduler inspection. Expose as ccall-able exports
+// so JS side can poll scheduler state when investigating deadlocks.
+extern KList<KThread*> scheduledThreads;
+extern KList<KThread*> waitThreads;
+
 EMSCRIPTEN_KEEPALIVE
-U32 diagScheduledCount() { return 0; }
+U32 diagScheduledCount() {
+    U32 n = 0;
+    scheduledThreads.for_each([&n](KListNode<KThread*>*) { n++; });
+    return n;
+}
+
 EMSCRIPTEN_KEEPALIVE
 U32 diagTimerCount() { return 0; }
+
+EMSCRIPTEN_KEEPALIVE
+void diagDumpThreads() {
+    KSystem::dumpAllThreads();
+}
 
 } // extern "C"
 

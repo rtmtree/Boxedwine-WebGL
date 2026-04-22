@@ -310,6 +310,7 @@ private:
     BOXEDWINE_MUTEX attachedShmMutex;
 
     friend class KMemory;
+    friend class KSystem;
     BHashTable<U32, MappedFilePtr> mappedFiles; // key is index
     // needs to be static, since during clone, the file pages and mappedFiles are cloned with the same map index, so this nextMappedFileIndex must be shared across processes
     static std::atomic_int nextMappedFileIndex;

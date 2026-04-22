@@ -125,7 +125,8 @@ public:
     static U32 getRunningProcessCount();
     static U32 getProcessCount();
     static void printStacks();
-    static void wakeThreadsWaitingOnProcessStateChanged();    
+    static void wakeThreadsWaitingOnProcessStateChanged();
+    static void dumpAllThreads();
 
     // syscalls
     static U32 clock_getres(KThread* thread, U32 clk_id, U32 timespecAddress);
