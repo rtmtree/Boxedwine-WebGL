@@ -368,23 +368,56 @@
         }
         function buildExtraFileSystems(callback) {
 	        let extraFSs = [];
-            if(Config.extraPayload.length > 0){
-            	let uint8Array = getBase64Data(Config.extraPayload);
-            	createFile("/", "overlay.zip", uint8Array);
-            	callback();
-            }else if(Config.extraZipFiles.length > 0){
-                for(let i = 0; i < Config.extraZipFiles.length; i++) {
-                    loadFile(Config.locateOverlayBaseUrl, Config.extraZipFiles[i], (uint8Array) => {
-                    	createFile("/", Config.extraZipFiles[i], uint8Array);
-                    	extraFSs.push(Config.extraZipFiles[i]);
-                    	if(extraFSs.length == Config.extraZipFiles.length) {
-            				callback();
-                        }
-            		});
+            // First, if the user has clicked "Persist PC Storage" before, pull
+            // the saved overlay zip out of IndexedDB and stage it into the
+            // emscripten FS so boxedwine picks it up via `-zip`.
+            installPersistedOverlay(() => {
+                if(Config.extraPayload.length > 0){
+                    let uint8Array = getBase64Data(Config.extraPayload);
+                    createFile("/", "overlay.zip", uint8Array);
+                    callback();
+                }else if(Config.extraZipFiles.length > 0){
+                    for(let i = 0; i < Config.extraZipFiles.length; i++) {
+                        loadFile(Config.locateOverlayBaseUrl, Config.extraZipFiles[i], (uint8Array) => {
+                            createFile("/", Config.extraZipFiles[i], uint8Array);
+                            extraFSs.push(Config.extraZipFiles[i]);
+                            if(extraFSs.length == Config.extraZipFiles.length) {
+                                callback();
+                            }
+                        });
+                    }
+                }else{
+                    callback();
                 }
-            }else{
+            });
+        }
+
+        // Stage the persisted overlay zip into the emscripten FS and mark it
+        // so getEmulatorParams() adds an extra `-zip` arg pointing at it.
+        // We don't touch Config.extraZipFiles because that list drives a URL
+        // fetch which would 404 for our locally-generated overlay.
+        function installPersistedOverlay(callback) {
+            try {
+                if (window.location.search && window.location.search.indexOf('no-persist-load') !== -1) {
+                    callback();
+                    return;
+                }
+            } catch(_) {}
+            getPersistedOverlayBytes().then(function(bytes) {
+                if (!bytes) { callback(); return; }
+                try {
+                    createFile("/", PERSIST_OVERLAY_NAME, bytes);
+                    Config.persistedOverlayInstalled = true;
+                    console.log("Staged persisted overlay: " + PERSIST_OVERLAY_NAME +
+                        " (" + (bytes.byteLength/1024).toFixed(1) + " KB)");
+                } catch (e) {
+                    console.warn("Failed to stage persisted overlay: " + e);
+                }
                 callback();
-            }
+            }).catch(function(e){
+                console.warn("getPersistedOverlayBytes failed: " + e);
+                callback();
+            });
         }
         function initBrowserFilesystem(callback) {
     		console.log("Use Storage mode: "+Config.storageMode);
@@ -584,6 +617,12 @@
             if(Config.extraPayload.length > 0){
 		        params.push("-zip");
     			params.push("overlay.zip");
+            }
+            // User-persisted overlay zip (from "Persist PC Storage"). Placed
+            // last so its entries win over stock boxedwine.zip on path clash.
+            if(Config.persistedOverlayInstalled){
+                params.push("-zip");
+                params.push(PERSIST_OVERLAY_NAME);
             }
             
             if (Config.appZipFile.length > 0) { // -mount $appZipFile "/home/username/files/"
@@ -920,13 +959,18 @@ function loadState(file) {
 }
 
 // --- Persisted PC storage ---
-// "Persist PC Storage" = take a snapshot of the emulator's entire state and
-// stash it in IndexedDB. On the next page load, we auto-load that snapshot
-// after Wine finishes booting, so any folders/files/settings the user
-// created are already present.
-var PERSIST_DB_NAME = 'boxedwine-persisted-state';
-var PERSIST_STORE = 'state';
-var PERSIST_KEY = 'current';
+// "Persist PC Storage" = walk the emscripten FS at /root (where Wine's writes
+// land because boot args include `-root /root -zip boxedwine.zip`), pack the
+// contents into a real zip, and stash the zip bytes in IndexedDB plus trigger
+// a download so the user can unzip and verify their files are inside.
+//
+// On the next page load, buildExtraFileSystems() looks for this stashed zip
+// and feeds it to boxedwine as an extra `-zip` overlay, so Wine sees the
+// user's added folders/files on top of the stock boxedwine.zip image.
+var PERSIST_DB_NAME = 'boxedwine-persisted-storage';
+var PERSIST_STORE = 'zips';
+var PERSIST_KEY = 'overlay';
+var PERSIST_OVERLAY_NAME = 'boxedwine-overlay.zip';
 
 function openPersistDB() {
     return new Promise(function(resolve, reject) {
@@ -948,6 +992,254 @@ function hasPersistedStorage() {
     }).catch(function(){ return false; });
 }
 
+function getPersistedOverlayBytes() {
+    return openPersistDB().then(function(db) {
+        return new Promise(function(resolve, reject) {
+            var tx = db.transaction(PERSIST_STORE, 'readonly');
+            var req = tx.objectStore(PERSIST_STORE).get(PERSIST_KEY);
+            req.onsuccess = function() { resolve(req.result); db.close(); };
+            req.onerror = function() { reject(req.error); db.close(); };
+        });
+    }).catch(function(){ return null; });
+}
+
+// --- Minimal zip writer (stored method, no compression) ---
+// The emulator's minizip layer reads these fine, and they're trivially
+// inspectable with `unzip -l` or Finder / Explorer double-click.
+var _zipCrcTable = null;
+function _zipCrc32(data) {
+    if (!_zipCrcTable) {
+        _zipCrcTable = new Uint32Array(256);
+        for (var n = 0; n < 256; n++) {
+            var c = n;
+            for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+            _zipCrcTable[n] = c;
+        }
+    }
+    var crc = 0xFFFFFFFF;
+    for (var i = 0; i < data.length; i++) crc = _zipCrcTable[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+// Merge the stock boxedwine.zip (already loaded into the emscripten FS at
+// `/` by buildBrowserFileSystem) with extra "stored" entries, preserving the
+// original compressed data verbatim so we never need a deflate decoder.
+// Duplicate entry names → the extra entry wins (placed later in the CD).
+function buildMergedZip(originalZip, extraEntries) {
+    if (!originalZip || originalZip.length < 22) {
+        return buildZipStored(extraEntries);
+    }
+    // Locate EOCD (end-of-central-directory) by scanning back up to 64KB.
+    var n = originalZip.length;
+    var view = new DataView(originalZip.buffer, originalZip.byteOffset, originalZip.length);
+    var eocdOff = -1;
+    var maxBack = Math.max(0, n - 65557);
+    for (var i = n - 22; i >= maxBack; i--) {
+        if (view.getUint32(i, true) === 0x06054b50) { eocdOff = i; break; }
+    }
+    if (eocdOff < 0) return buildZipStored(extraEntries);
+    var oldCdSize = view.getUint32(eocdOff + 12, true);
+    var oldCdOff = view.getUint32(eocdOff + 16, true);
+    var oldEntryCount = view.getUint16(eocdOff + 10, true);
+    if (oldCdOff + oldCdSize > n) return buildZipStored(extraEntries);
+
+    var originalData = originalZip.subarray(0, oldCdOff);   // [local headers + data]
+    var originalCD = originalZip.subarray(oldCdOff, oldCdOff + oldCdSize);
+
+    // Encode the new entries' local headers + data, and their central
+    // directory records with offsets relative to start of file, starting at
+    // originalData.length.
+    var extraParts = [];
+    var extraCDParts = [];
+    var curOff = originalData.length;
+
+    for (var e = 0; e < extraEntries.length; e++) {
+        var ent = extraEntries[e];
+        var filename = new TextEncoder().encode(ent.name);
+        var data = ent.data || new Uint8Array(0);
+        var crc = _zipCrc32(data);
+        var size = data.length;
+
+        var lh = new Uint8Array(30 + filename.length);
+        var lv = new DataView(lh.buffer);
+        lv.setUint32(0, 0x04034b50, true);
+        lv.setUint16(4, 20, true);
+        lv.setUint16(6, 0x0800, true);
+        lv.setUint16(8, 0, true);
+        lv.setUint16(10, 0, true);
+        lv.setUint16(12, 0x21, true);
+        lv.setUint32(14, crc, true);
+        lv.setUint32(18, size, true);
+        lv.setUint32(22, size, true);
+        lv.setUint16(26, filename.length, true);
+        lv.setUint16(28, 0, true);
+        lh.set(filename, 30);
+        extraParts.push(lh);
+        if (size) extraParts.push(data);
+
+        var cd = new Uint8Array(46 + filename.length);
+        var cv = new DataView(cd.buffer);
+        cv.setUint32(0, 0x02014b50, true);
+        cv.setUint16(4, 30, true);
+        cv.setUint16(6, 20, true);
+        cv.setUint16(8, 0x0800, true);
+        cv.setUint16(10, 0, true);
+        cv.setUint16(12, 0, true);
+        cv.setUint16(14, 0x21, true);
+        cv.setUint32(16, crc, true);
+        cv.setUint32(20, size, true);
+        cv.setUint32(24, size, true);
+        cv.setUint16(28, filename.length, true);
+        cv.setUint16(30, 0, true);
+        cv.setUint16(32, 0, true);
+        cv.setUint16(34, 0, true);
+        cv.setUint16(36, 0, true);
+        var isDir = ent.name.charAt(ent.name.length - 1) === '/';
+        cv.setUint32(38, isDir ? 0x41ED0010 : 0x81A40000, true);
+        cv.setUint32(42, curOff, true);
+        cd.set(filename, 46);
+        extraCDParts.push(cd);
+
+        curOff += lh.length + size;
+    }
+
+    // Assemble: original data + extra entries + (old CD + new CD) + new EOCD
+    var cdStart = curOff;
+    var mergedCdSize = originalCD.length;
+    for (var k = 0; k < extraCDParts.length; k++) mergedCdSize += extraCDParts[k].length;
+
+    var eocd = new Uint8Array(22);
+    var ev = new DataView(eocd.buffer);
+    var totalEntries = oldEntryCount + extraEntries.length;
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(4, 0, true);
+    ev.setUint16(6, 0, true);
+    ev.setUint16(8, totalEntries, true);
+    ev.setUint16(10, totalEntries, true);
+    ev.setUint32(12, mergedCdSize, true);
+    ev.setUint32(16, cdStart, true);
+    ev.setUint16(20, 0, true);
+
+    var parts = [originalData].concat(extraParts, [originalCD], extraCDParts, [eocd]);
+    var total = 0;
+    for (var p = 0; p < parts.length; p++) total += parts[p].length;
+    var out = new Uint8Array(total);
+    var pos = 0;
+    for (var q = 0; q < parts.length; q++) { out.set(parts[q], pos); pos += parts[q].length; }
+    return out;
+}
+
+function buildZipStored(entries) {
+    // entries: [{ name, data }] — data empty for directories, name ends with '/' for dirs.
+    var parts = [];
+    var centralDir = [];
+    var offset = 0;
+
+    for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        var filename = new TextEncoder().encode(e.name);
+        var data = e.data || new Uint8Array(0);
+        var crc = _zipCrc32(data);
+        var size = data.length;
+
+        // Local file header
+        var header = new Uint8Array(30 + filename.length);
+        var hv = new DataView(header.buffer);
+        hv.setUint32(0, 0x04034b50, true);
+        hv.setUint16(4, 20, true);       // version needed
+        hv.setUint16(6, 0x0800, true);   // UTF-8 filename flag
+        hv.setUint16(8, 0, true);        // compression = stored
+        hv.setUint16(10, 0, true);       // mod time
+        hv.setUint16(12, 0x21, true);    // mod date = 1980-01-01
+        hv.setUint32(14, crc, true);
+        hv.setUint32(18, size, true);
+        hv.setUint32(22, size, true);
+        hv.setUint16(26, filename.length, true);
+        hv.setUint16(28, 0, true);       // extra length
+        header.set(filename, 30);
+        parts.push(header);
+        if (size) parts.push(data);
+
+        // Central directory entry
+        var cd = new Uint8Array(46 + filename.length);
+        var cv = new DataView(cd.buffer);
+        cv.setUint32(0, 0x02014b50, true);
+        cv.setUint16(4, 30, true);       // version made by: 3.0 = UNIX
+        cv.setUint16(6, 20, true);
+        cv.setUint16(8, 0x0800, true);
+        cv.setUint16(10, 0, true);
+        cv.setUint16(12, 0, true);
+        cv.setUint16(14, 0x21, true);
+        cv.setUint32(16, crc, true);
+        cv.setUint32(20, size, true);
+        cv.setUint32(24, size, true);
+        cv.setUint16(28, filename.length, true);
+        cv.setUint16(30, 0, true);
+        cv.setUint16(32, 0, true);
+        cv.setUint16(34, 0, true);
+        cv.setUint16(36, 0, true);
+        var isDir = e.name.charAt(e.name.length - 1) === '/';
+        cv.setUint32(38, isDir ? 0x41ED0010 : 0x81A40000, true); // rwxr-xr-x dir or rw-r--r-- file
+        cv.setUint32(42, offset, true);
+        cd.set(filename, 46);
+        centralDir.push(cd);
+
+        offset += header.length + size;
+    }
+
+    var cdStart = offset;
+    for (var j = 0; j < centralDir.length; j++) { parts.push(centralDir[j]); offset += centralDir[j].length; }
+    var cdSize = offset - cdStart;
+
+    var eocd = new Uint8Array(22);
+    var ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(4, 0, true);
+    ev.setUint16(6, 0, true);
+    ev.setUint16(8, entries.length, true);
+    ev.setUint16(10, entries.length, true);
+    ev.setUint32(12, cdSize, true);
+    ev.setUint32(16, cdStart, true);
+    ev.setUint16(20, 0, true);
+    parts.push(eocd);
+
+    var total = 0;
+    for (var p = 0; p < parts.length; p++) total += parts[p].length;
+    var out = new Uint8Array(total);
+    var pos = 0;
+    for (var q = 0; q < parts.length; q++) { out.set(parts[q], pos); pos += parts[q].length; }
+    return out;
+}
+
+// Walk an emscripten-FS directory, collecting entries relative to rootPath.
+function collectFsEntries(rootPath) {
+    var results = [];
+    function walk(path, rel) {
+        var names;
+        try { names = FS.readdir(path); } catch(e) { return; }
+        for (var i = 0; i < names.length; i++) {
+            var n = names[i];
+            if (n === '.' || n === '..') continue;
+            var full = path === '/' ? '/' + n : path + '/' + n;
+            var relName = rel ? rel + '/' + n : n;
+            var stat;
+            try { stat = FS.lstat(full); } catch(e) { continue; }
+            var mode = stat.mode & 0xF000;
+            if (mode === 0x4000) { // directory
+                results.push({ name: relName + '/', data: null });
+                walk(full, relName);
+            } else if (mode === 0x8000) { // regular file
+                var data;
+                try { data = FS.readFile(full); } catch(e) { continue; }
+                results.push({ name: relName, data: data });
+            }
+            // skip symlinks and others
+        }
+    }
+    walk(rootPath, '');
+    return results;
+}
+
 function persistPcStorage() {
     if (!isRunning) {
         alert("Emulator is not running.");
@@ -958,125 +1250,88 @@ function persistPcStorage() {
     btn.disabled = true;
     btn.textContent = "Persisting...";
 
-    Module._requestSaveState();
-    var pollSave = function() {
-        if (!Module._isStateReady()) {
-            setTimeout(pollSave, 50);
-            return;
-        }
-        if (!Module._isStateSuccess()) {
-            window.__boxedwineSaveChunks = null;
-            btn.disabled = false;
-            btn.textContent = originalText;
-            alert("Failed to persist state. Check console.");
-            return;
-        }
-        var chunks = window.__boxedwineSaveChunks || [];
-        var total = window.__boxedwineSaveTotal || 0;
-        window.__boxedwineSaveChunks = null;
-        window.__boxedwineSaveTotal = 0;
+    // Flush IDBFS so /root reflects the latest writes, then build a merged
+    // zip (stock boxedwine.zip entries + user's additions) and download it.
+    // Also stash in IndexedDB so the next page load auto-applies the overlay.
+    FS.syncfs(false, function(err) {
+        try {
+            var entries = collectFsEntries(ROOT);
+            if (entries.length === 0) {
+                btn.disabled = false;
+                btn.textContent = originalText;
+                alert("No PC storage changes to persist yet.\n\n" +
+                      "Tip: create a folder or file inside the emulator first, then press this button again.");
+                return;
+            }
 
-        var blob = new Blob(chunks, {type: "application/octet-stream"});
-        blob.arrayBuffer().then(function(buf) {
-            var bytes = new Uint8Array(buf);
-            return openPersistDB().then(function(db) {
+            // Read the stock zip (loaded into emscripten FS at boot).
+            var originalZip = null;
+            try { originalZip = FS.readFile("/" + Config.rootZipFile); } catch(_) {}
+            var merged = originalZip
+                ? buildMergedZip(originalZip, entries)
+                : buildZipStored(entries);
+
+            // Save to IndexedDB so the overlay applies on next reload.
+            openPersistDB().then(function(db) {
                 return new Promise(function(resolve, reject) {
                     var tx = db.transaction(PERSIST_STORE, 'readwrite');
-                    tx.objectStore(PERSIST_STORE).put(bytes, PERSIST_KEY);
-                    tx.oncomplete = function() { db.close(); resolve(bytes.length); };
+                    tx.objectStore(PERSIST_STORE).put(merged, PERSIST_KEY);
+                    tx.oncomplete = function() { db.close(); resolve(); };
                     tx.onerror = function() { db.close(); reject(tx.error); };
                 });
+            }).then(function() {
+                // Trigger a download so the user can drop the new zip into
+                // project/emscripten/web/boxedwine.zip (replacing the stock
+                // one) if they want the change to be permanent on disk.
+                var blob = new Blob([merged], {type: "application/zip"});
+                var link = document.createElement('a');
+                link.download = Config.rootZipFile; // "boxedwine.zip"
+                link.href = URL.createObjectURL(blob);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(link.href);
+
+                btn.disabled = false;
+                btn.textContent = "Persisted ✓";
+                setTimeout(function(){ btn.textContent = originalText; }, 1500);
+                document.getElementById('clearpersistbtn').style.display = '';
+                console.log("Persisted " + entries.length + " new entries into merged " +
+                    Config.rootZipFile + " (" + (merged.length/1024/1024).toFixed(2) + " MB). " +
+                    "Downloaded a copy; also stashed in IndexedDB for auto-reload.");
+            }).catch(function(e) {
+                btn.disabled = false;
+                btn.textContent = originalText;
+                console.error("Error persisting:", e);
+                alert("Error persisting: " + (e && e.message ? e.message : e));
             });
-        }).then(function(size) {
+        } catch (e) {
             btn.disabled = false;
             btn.textContent = originalText;
-            document.getElementById('clearpersistbtn').style.display = '';
-            console.log("Persisted PC storage to IndexedDB: " + size + " bytes");
-            alert("PC storage persisted (" + (size/1048576).toFixed(1) + " MB). It will auto-load next time you open this page.");
-        }).catch(function(e) {
-            btn.disabled = false;
-            btn.textContent = originalText;
-            console.error("Error persisting state:", e);
-            alert("Error persisting state: " + (e && e.message ? e.message : e));
-        });
-    };
-    setTimeout(pollSave, 100);
+            console.error("Error building persist zip:", e);
+            alert("Error building persist zip: " + (e && e.message ? e.message : e));
+        }
+    });
 }
 
 function clearPersistedPcStorage() {
-    if (!confirm("Clear the persisted PC storage? Next page load will boot fresh.")) return;
+    if (!confirm("Clear the persisted PC storage overlay? Next page load will boot from stock boxedwine.zip only.")) return;
     openPersistDB().then(function(db) {
         var tx = db.transaction(PERSIST_STORE, 'readwrite');
         tx.objectStore(PERSIST_STORE).delete(PERSIST_KEY);
         tx.oncomplete = function() {
             db.close();
             document.getElementById('clearpersistbtn').style.display = 'none';
-            alert("Persisted PC storage cleared.");
+            alert("Persisted PC storage cleared. Reload to get a fresh boot.");
         };
         tx.onerror = function() { db.close(); alert("Failed to clear: " + tx.error); };
     });
 }
 
-function autoLoadPersistedPcStorage() {
-    // ?no-persist-load in the URL (or shift-reload) lets the user bypass the
-    // auto-load if the persisted state got wedged.
-    try {
-        var qs = window.location.search;
-        if (qs && qs.indexOf('no-persist-load') !== -1) {
-            console.log("Auto-load skipped (no-persist-load in URL)");
-            return;
-        }
-    } catch (_) {}
-
-    openPersistDB().then(function(db) {
-        return new Promise(function(resolve, reject) {
-            var tx = db.transaction(PERSIST_STORE, 'readonly');
-            var req = tx.objectStore(PERSIST_STORE).get(PERSIST_KEY);
-            req.onsuccess = function() { db.close(); resolve(req.result); };
-            req.onerror = function() { db.close(); reject(req.error); };
-        });
-    }).then(function(bytes) {
-        if (!bytes) {
-            console.log("No persisted state to auto-load");
-            return;
-        }
-        console.log("Persisted state found (" + (bytes.length/1048576).toFixed(1) + " MB); waiting for Wine to finish booting before auto-loading");
-
-        // Poll until the MIPS counter advances — that indicates the
-        // scheduler is executing real instructions, i.e. Wine has reached
-        // its idle loop and is ready to be overwritten by our snapshot.
-        var prevTitle = document.title;
-        var stableTicks = 0;
-        var attempts = 0;
-        var waitThenLoad = function() {
-            attempts++;
-            if (attempts > 600) {
-                console.warn("Auto-load timed out waiting for emulator to settle");
-                return;
-            }
-            var nowTitle = document.title;
-            if (nowTitle.indexOf('MIPS') !== -1 && nowTitle !== prevTitle) {
-                stableTicks++;
-            } else {
-                stableTicks = 0;
-            }
-            prevTitle = nowTitle;
-            // Need a few consecutive ticks with MIPS updating so the
-            // emulator has really started running and isn't still in
-            // early main-thread init.
-            if (stableTicks >= 2) {
-                console.log("Auto-loading persisted PC storage");
-                var file = new File([new Blob([bytes])], 'persisted.boxedstate');
-                loadState(file);
-                return;
-            }
-            setTimeout(waitThenLoad, 500);
-        };
-        setTimeout(waitThenLoad, 2000);
-    }).catch(function(e) {
-        console.error("Auto-load error:", e);
-    });
-}
+// No-op kept for backwards compatibility — the previous full-heap auto-load
+// has been replaced by the zip overlay, which is installed by
+// initialSetup() before boxedwine starts.
+function autoLoadPersistedPcStorage() {}
 
 function ensureDir(dir) {
     if (dir === '/' || dir === '') return;
