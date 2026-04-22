@@ -126,6 +126,7 @@ public:
     void removeThread(KThread* thread);
     KThread* getThreadById(U32 tid);
     U32 getThreadCount();
+    std::vector<KThread*> getAllThreads();
 	void deleteThread(KThread* thread);
     void killAllThreads(KThread* exceptThisOne = nullptr);
     BString getAbsoluteExePath();

@@ -227,6 +227,16 @@ U32 KProcess::getThreadCount() {
     return (U32)this->threads.size();
 }
 
+std::vector<KThread*> KProcess::getAllThreads() {
+    BOXEDWINE_CRITICAL_SECTION_WITH_MUTEX(threadsMutex);
+    std::vector<KThread*> result;
+    result.reserve(this->threads.size());
+    for (const auto& kv : this->threads) {
+        if (kv.value) result.push_back(kv.value);
+    }
+    return result;
+}
+
 void KProcess::deleteThread(KThread* thread) {
     thread->cleanup();  
     if (this->getThreadCount() == 0) {

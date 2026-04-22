@@ -38,3 +38,6 @@ tools/BoxedwineRunner/out/
 lib/mac
 .vs/
 .github/
+
+
+project/emscripten/Build/

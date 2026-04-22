@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "boxedwine-web-v3",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["project/emscripten/nocache-server.py", "8083"],
+      "cwd": ".",
+      "port": 8083,
+      "env": { "PYTHONUNBUFFERED": "1" }
+    }
+  ]
+}

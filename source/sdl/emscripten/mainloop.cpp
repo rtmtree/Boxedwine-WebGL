@@ -97,6 +97,9 @@ void mainloop() {
     U32 count=0;
     BString mipsTitle;
     while (1) {
+        void checkSaveLoadState();
+        checkSaveLoadState();
+
         bool ran = runSlice();
 
         KNativeSystem::tick();
