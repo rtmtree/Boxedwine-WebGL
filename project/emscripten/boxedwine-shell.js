@@ -68,6 +68,30 @@
                 }
                 console.log("Interpreted app=" + exeName + " as zip=" + Config.appZipFile + " program=" + Config.Program);
             }
+
+            // Dev default: auto-start Diablo Spawn when no app is picked from
+            // the URL/payload. Bundled inside boxedwine.zip at the standard
+            // wine prefix location, so no extra mount is needed. Also wire in
+            // the cnc-ddraw replacement at C:\ddraw\ddraw.dll since wine's
+            // own ddraw goes through wined3d → libGLX which isn't available
+            // in this wasm build.
+            if (Config.Program.length === 0 && Config.appZipFile.length === 0 && Config.appPayload.length === 0) {
+                Config.Program = "/home/username/.wine/drive_c/Diablo/Spawn/diablo_s.exe";
+                Config.WorkingDir = "/home/username/.wine/drive_c/Diablo/Spawn";
+                // Opt into cnc-ddraw only with ?cnc=1 — it probes D3DKMT in
+                // a tight loop in GDI mode which wastes cycles. Default path
+                // now uses wine's builtin ddraw → wined3d → opengl32 → libGL.
+                if (Config.ddrawOverridePath === null && (window.location.search||'').indexOf('cnc=1') !== -1) {
+                    Config.ddrawOverridePath = Config.WorkingDir;
+                }
+                // Silence Wine's fixme spam so the console stays readable.
+                if (Config.envProp.length === 0) {
+                    Config.envProp = 'WINEDEBUG=-fixme';
+                }
+                console.log("Defaulting to Diablo: " + Config.Program +
+                            "  (ddrawOverride=" + Config.ddrawOverridePath +
+                            ", env=" + Config.envProp + ")");
+            }
         }
         function allowParameterOverride() {
             if(Config.urlParams.length >0) {

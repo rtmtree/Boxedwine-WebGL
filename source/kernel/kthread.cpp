@@ -1257,8 +1257,9 @@ void KThread::runSignal(U32 signal, U32 trapNo, U32 errorNo) {
 // bit 4 - 0 = n/a, 1 = fault was an instruction fetch
 
 void KThread::seg_mapper(U32 address, bool readFault, bool writeFault, bool throwException) {
+    dumpNullFault("seg_mapper", address);
     if (this->process->sigActions[K_SIGSEGV].handlerAndSigAction!=K_SIG_IGN && this->process->sigActions[K_SIGSEGV].handlerAndSigAction!=K_SIG_DFL) {
-        this->process->sigActions[K_SIGSEGV].sigInfo[0] = K_SIGSEGV;		
+        this->process->sigActions[K_SIGSEGV].sigInfo[0] = K_SIGSEGV;
         this->process->sigActions[K_SIGSEGV].sigInfo[1] = 0;
         this->process->sigActions[K_SIGSEGV].sigInfo[2] = 1; // SEGV_MAPERR
         this->process->sigActions[K_SIGSEGV].sigInfo[3] = address;
@@ -1271,8 +1272,34 @@ void KThread::seg_mapper(U32 address, bool readFault, bool writeFault, bool thro
     }
 }
 
+// Helper: dump first NULL-region fault so we can disassemble guest EIP.
+void KThread::dumpNullFault(const char* source, U32 address) {
+    static bool dumped = false;
+    if (dumped) return;
+    if (address >= 0x10000) return;            // only NULL page range
+    if (!this->cpu) return;
+    dumped = true;
+    U32 eip = this->cpu->eip.u32;
+    char buf[768];
+    int n = 0;
+    n += snprintf(buf + n, sizeof(buf) - n,
+                  "[%s@NULL addr=%08X] tid=%04X eip=%08X bytes=", source, address, this->id, eip);
+    for (int i = -4; i < 16; i++) {
+        U32 a = eip + i;
+        U32 b = 0xDE;
+        try { b = this->memory->readb(a); } catch (...) {}
+        n += snprintf(buf + n, sizeof(buf) - n, "%02X ", b);
+    }
+    n += snprintf(buf + n, sizeof(buf) - n,
+                  " EAX=%08X ECX=%08X EDX=%08X EBX=%08X ESP=%08X EBP=%08X ESI=%08X EDI=%08X",
+                  this->cpu->reg[0].u32, this->cpu->reg[1].u32, this->cpu->reg[2].u32, this->cpu->reg[3].u32,
+                  this->cpu->reg[4].u32, this->cpu->reg[5].u32, this->cpu->reg[6].u32, this->cpu->reg[7].u32);
+    klog(buf);
+}
+
 // motorhead demo installer, tomb raider 3 demo will trigger this
 void KThread::seg_access(U32 address, bool readFault, bool writeFault, bool throwException) {
+    dumpNullFault("seg_access", address);
     if (this->process->sigActions[K_SIGSEGV].handlerAndSigAction!=K_SIG_IGN && this->process->sigActions[K_SIGSEGV].handlerAndSigAction!=K_SIG_DFL) {
 
         this->process->sigActions[K_SIGSEGV].sigInfo[0] = K_SIGSEGV;		

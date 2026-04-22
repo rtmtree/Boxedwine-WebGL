@@ -76,6 +76,7 @@ public:
 
     void seg_mapper(U32 address, bool readFault, bool writeFault, bool throwException=true);
     void seg_access(U32 address, bool readFault, bool writeFault, bool throwException=true);
+    void dumpNullFault(const char* source, U32 address);
     bool runSignals();
     void runSignal(U32 signal, U32 trapNo, U32 errorNo);
     void signalIllegalInstruction(int code);   

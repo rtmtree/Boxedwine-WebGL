@@ -263,6 +263,21 @@ void glcommon_glGetString(CPU* cpu) {
     const char* result = (const char*)GL_FUNC(pglGetString)(name);
     KProcess* process = cpu->thread->process.get();
 
+    // Guard against host returning NULL (common with WebGL for strings it
+    // doesn't expose). Downstream code does strlen/split on `result`; Wine's
+    // wined3d in particular parses the returned strings aggressively, so
+    // provide minimally-valid defaults it can handle.
+    if (!result) {
+        switch (name) {
+            case GL_VENDOR:     result = "Boxedwine"; break;
+            case GL_RENDERER:   result = "Boxedwine WebGL"; break;
+            case GL_VERSION:    result = "2.1 (Boxedwine WebGL)"; break;
+            case 0x8B8C /*GL_SHADING_LANGUAGE_VERSION*/: result = "1.20"; break;
+            case GL_EXTENSIONS: result = ""; break;
+            default:            result = ""; break;
+        }
+    }
+
     if (name == GL_EXTENSIONS) {
 #ifdef DISABLE_GL_EXTENSIONS
         result = "GL_EXT_texture3D";
@@ -325,16 +340,22 @@ void glcommon_glGetString(CPU* cpu) {
             }
         }
     }
+    // If the host GL returns NULL (e.g. WebGL has no info for this name, or
+    // the context isn't current yet), substitute an empty string. Returning
+    // NULL here causes guest callers (Wine's wined3d / combase) to pass NULL
+    // to memcmp / strlen and segfault — the empty-string substitution keeps
+    // guest string-walking code running with a zero-length result.
+    if (!result) {
+        result = "";
+    }
     U32 previousAddress = 0;
-    if (result && process->glStrings.get(name, previousAddress)) {
+    if (process->glStrings.get(name, previousAddress)) {
         if (process->memory->memcmp(previousAddress, result, (U32)strlen(result)+1) == 0) {
             EAX = previousAddress;
             return;
         }
     }
-    if (!result) {
-        EAX = 0;
-    } else {
+    {
         U32 len = (U32)strlen(result) + 1;
         U32 address = cpu->memory->mmap(cpu->thread, 0, len, K_PROT_WRITE | K_PROT_READ, K_MAP_PRIVATE | K_MAP_ANONYMOUS, -1, 0);
         cpu->memory->memcpy(address, (void*)result, len);

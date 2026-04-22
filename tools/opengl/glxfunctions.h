@@ -125,13 +125,43 @@ GLXContext glXCreateContextAttribsARB(Display* dpy, GLXFBConfig config, GLXConte
 
 #include <dlfcn.h>
 __GLXextFuncPtr glXGetProcAddressARB(const GLubyte* procName) {
-	void* result = dlsym((void*)0, (const char*)procName);
-	printf("libGL glXGetProcessAddressARB: %s result=%X\n", (const char*)procName, (int)result);
-	return result;
+	/* printf removed — wine resolves hundreds of gl* functions during init and
+	 * each printf through emscripten stdout → JS console is a massive slowdown. */
+	return dlsym((void*)0, (const char*)procName);
 }
 
 void glXSwapIntervalEXT(Display* dpy, GLXDrawable drawable, int interval) {
 	CALL_3(kXSwapIntervalEXT, dpy, drawable, interval);
+}
+
+/* Non-NULL stubs so wine can store these in dispatch tables without crashing
+ * when it later calls them (even though we don't actually implement vsync or
+ * NV memory allocation). */
+int glXSwapIntervalSGI(int interval) {
+	(void)interval;
+	return 0;
+}
+
+int glXSwapIntervalMESA(unsigned int interval) {
+	(void)interval;
+	return 0;
+}
+
+unsigned int glXGetSwapIntervalMESA(void) {
+	return 0;
+}
+
+/* Return non-NULL so callers that deref the result don't segfault. The
+ * returned buffer is 64KB of static zeroed memory; if anyone tries to use
+ * it as NV memory it won't crash but also won't do anything meaningful. */
+static char glXNvMemoryStub[65536];
+void* glXAllocateMemoryNV(int size, float readFreq, float writeFreq, float priority) {
+	(void)size; (void)readFreq; (void)writeFreq; (void)priority;
+	return glXNvMemoryStub;
+}
+
+void glXFreeMemoryNV(void* pointer) {
+	(void)pointer;
 }
 
 /*

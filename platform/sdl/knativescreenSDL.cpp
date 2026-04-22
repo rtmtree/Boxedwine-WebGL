@@ -26,6 +26,20 @@
 #include "knativescreenSDL.h"
 #include "../../source/x11/x11.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+extern "C" {
+    unsigned int __putBitsOnWndTotal = 0;
+    unsigned int __putBitsOnWndDirty = 0;
+    unsigned int __putBitsOnWndMaxW = 0;
+    unsigned int __putBitsOnWndMaxH = 0;
+    EMSCRIPTEN_KEEPALIVE unsigned int diagPutBitsTotal() { return __putBitsOnWndTotal; }
+    EMSCRIPTEN_KEEPALIVE unsigned int diagPutBitsDirty() { return __putBitsOnWndDirty; }
+    EMSCRIPTEN_KEEPALIVE unsigned int diagPutBitsMaxW() { return __putBitsOnWndMaxW; }
+    EMSCRIPTEN_KEEPALIVE unsigned int diagPutBitsMaxH() { return __putBitsOnWndMaxH; }
+}
+#endif
+
 KNativeScreenSDL::KNativeScreenSDL(U32 cx, U32 cy, U32 bpp, int scaleX, int scaleY, const BString& scaleQuality, U32 fullScreen, U32 vsync) {
     input = std::make_shared<KNativeInputSDL>(cx, cy, scaleX, scaleY);
     this->bpp = bpp;
@@ -192,6 +206,16 @@ void KNativeScreenSDL::putBitsOnWnd(U32 id, U8* bits, U32 bitsPerPixel, U32 srcP
     if (!bitsPerPixel || !srcPitch) {
         return;
     }
+#ifdef __EMSCRIPTEN__
+    extern unsigned int __putBitsOnWndTotal;
+    extern unsigned int __putBitsOnWndDirty;
+    extern unsigned int __putBitsOnWndMaxW;
+    extern unsigned int __putBitsOnWndMaxH;
+    __putBitsOnWndTotal++;
+    if (isDirty) __putBitsOnWndDirty++;
+    if (width > __putBitsOnWndMaxW) __putBitsOnWndMaxW = width;
+    if (height > __putBitsOnWndMaxH) __putBitsOnWndMaxH = height;
+#endif
     WndCachePtr wnd;
     
     {

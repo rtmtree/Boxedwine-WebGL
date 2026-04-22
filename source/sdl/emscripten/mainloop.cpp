@@ -103,17 +103,18 @@ void mainloop() {
         bool ran = runSlice();
 
         KNativeSystem::tick();
+
         if (!KNativeSystem::getCurrentInput()->processEvents()) {
             KNativeSystem::cleanup();
             return;
         }
-        t = KSystem::getMilliesSinceStart();                
+        t = KSystem::getMilliesSinceStart();
         if (lastTitleUpdate+1000 < t) {
             lastTitleUpdate = t;
 	    mipsTitle = B("BoxedWine ");
 	    mipsTitle.append(getMIPS());
 	    mipsTitle.append(" MIPS");
-	    emscripten_set_window_title(mipsTitle.c_str());           
+	    emscripten_set_window_title(mipsTitle.c_str());
         }
         if (!ran) {
             break;

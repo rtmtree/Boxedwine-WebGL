@@ -1,3 +1,64 @@
+        // Filter out D3DKMT stub spam from wine console so we can see other
+        // log lines. wine's D3DKMTOpenAdapterFromHdc stub fires per-frame from
+        // multiple render threads and floods the 500-line console buffer.
+        window.__droppedD3DKMT = 0;
+        window.__ringLog = [];
+        (function(){
+            var origLog = console.log;
+            var origInfo = console.info;
+            function filter(orig, args) {
+                var msg = Array.prototype.slice.call(args).join(' ');
+                if (msg.indexOf('D3DKMTOpenAdapterFromHdc') !== -1) {
+                    window.__droppedD3DKMT++;
+                    return;
+                }
+                window.__ringLog.push(msg);
+                if (window.__ringLog.length > 8000) window.__ringLog.shift();
+                orig.apply(console, args);
+            }
+            console.log = function(){ filter(origLog, arguments); };
+            console.info = function(){ filter(origInfo, arguments); };
+        })();
+
+        // Capture runtime errors early so the "Exception thrown" banner
+        // keeps the actual message visible. Guest-fault throws (`throw 1` /
+        // `throw 2` from seg_access / seg_mapper) bubble to JS as a
+        // WebAssembly.Exception of type "int"; those are INTENTIONAL control
+        // flow inside the emulator — we suppress them so emscripten_set_main_loop
+        // keeps firing on the next tick instead of crashing.
+        window.__capturedErrors = [];
+        window.__suppressedWasmExceptions = 0;
+        window.addEventListener('error', e => {
+            var isWasmInt = e.error && (e.error.message === 'int' || /Error:\s*int/.test(e.error.stack || ''));
+            if (isWasmInt) {
+                window.__suppressedWasmExceptions++;
+                if ((window.__suppressedWasmExceptions % 200) === 1) {
+                    console.warn('[shell] suppressed guest-fault WebAssembly.Exception (count=' + window.__suppressedWasmExceptions + ')');
+                }
+                e.preventDefault();
+                e.stopImmediatePropagation && e.stopImmediatePropagation();
+                return true;
+            }
+            // Suppress GLctx-undefined TypeErrors from _emscripten_gl* wrappers
+            var isGLctxErr = e.error && e.error instanceof TypeError &&
+                /GLctx|Cannot read properties of undefined/.test(String(e.error.message));
+            if (isGLctxErr) {
+                window.__suppressedGLctxErrors = (window.__suppressedGLctxErrors||0) + 1;
+                if ((window.__suppressedGLctxErrors % 200) === 1) {
+                    console.warn('[shell] suppressed GLctx-undefined TypeError (count=' + window.__suppressedGLctxErrors + ')');
+                }
+                e.preventDefault();
+                e.stopImmediatePropagation && e.stopImmediatePropagation();
+                return true;
+            }
+            window.__capturedErrors.push({ msg: e.message, src: (e.filename||'') + ':' + e.lineno + ':' + e.colno, stack: e.error && e.error.stack });
+            console.error('[capturedError]', e.message, 'at', (e.filename||'') + ':' + e.lineno, e.error && e.error.stack);
+        });
+        window.addEventListener('unhandledrejection', e => {
+            window.__capturedErrors.push({ rejection: String(e.reason) });
+            console.error('[capturedRejection]', e.reason);
+        });
+
         let ALLOW_PARAM_OVERRIDE_FROM_URL = true;
         let ROOT = "/root";
         let STORAGE_INDEXED_DB = "INDEXED_DB";
@@ -67,6 +128,54 @@
                     Config.Program = exeName;
                 }
                 console.log("Interpreted app=" + exeName + " as zip=" + Config.appZipFile + " program=" + Config.Program);
+            }
+
+            // Dev default: auto-start Diablo Spawn when no app is picked from
+            // the URL/payload. Bundled inside boxedwine.zip at the standard
+            // wine prefix location, so no extra mount is needed. Also wire in
+            // the cnc-ddraw replacement at C:\ddraw\ddraw.dll since wine's
+            // own ddraw goes through wined3d → libGLX which isn't available
+            // in this wasm build.
+            if (Config.Program.length === 0 && Config.appZipFile.length === 0 && Config.appPayload.length === 0) {
+                // ?sw=1 runs the pre-bundled diablosw.exe (DevilutionX / SDL
+                // fork) instead of the original diablo_s.exe. Bypasses wine's
+                // ddraw→wined3d→GL path entirely.
+                if ((window.location.search||'').indexOf('sw=1') !== -1) {
+                    Config.Program = "/home/username/diablosw.exe";
+                    Config.WorkingDir = "/home/username";
+                } else {
+                    Config.Program = "/home/username/.wine/drive_c/Diablo/Spawn/diablo_s.exe";
+                    Config.WorkingDir = "/home/username/.wine/drive_c/Diablo/Spawn";
+                }
+                // Opt into cnc-ddraw only with ?cnc=1 — it probes D3DKMT in
+                // a tight loop in GDI mode which wastes cycles. Default path
+                // now uses wine's builtin ddraw → wined3d → opengl32 → libGL.
+                if (Config.ddrawOverridePath === null && (window.location.search||'').indexOf('cnc=1') !== -1) {
+                    Config.ddrawOverridePath = Config.WorkingDir;
+                }
+                // Silence Wine's fixme spam so the console stays readable.
+                if (Config.envProp.length === 0) {
+                    Config.envProp = 'WINEDEBUG=-fixme';
+                }
+                // Force wine ddraw into software mode (no wined3d/GL) with
+                // ?nowined3d=1. This bypasses the D04F13C4 NULL-deref crash
+                // seen when wined3d probes our stubbed libGL.
+                var search = (window.location.search||'');
+                if (search.indexOf('nowined3d=1') !== -1) {
+                    Config.envProp += ';WINEDLLOVERRIDES=wined3d=disabled';
+                }
+                // Show ddraw trace channel with ?ddrawtrace=1.
+                if (search.indexOf('ddrawtrace=1') !== -1) {
+                    Config.envProp = Config.envProp.replace(/WINEDEBUG=-fixme/, 'WINEDEBUG=+ddraw,-fixme');
+                }
+                // Dump DLL load addresses with ?loaddll=1 so we can match a
+                // crash IP to a specific module.
+                if (search.indexOf('loaddll=1') !== -1) {
+                    Config.envProp = Config.envProp.replace(/WINEDEBUG=-fixme/, 'WINEDEBUG=+loaddll,+module,-fixme');
+                }
+                console.log("Defaulting to Diablo: " + Config.Program +
+                            "  (ddrawOverride=" + Config.ddrawOverridePath +
+                            ", env=" + Config.envProp + ")");
             }
         }
         function allowParameterOverride() {
@@ -663,8 +772,13 @@
                 params.push("-" + Config.cpu);
             }
             if(Config.envProp.length > 0){
-                params.push("-env");
-                params.push(Config.envProp);
+                // Config.envProp may contain multiple semicolon-separated env
+                // vars; emit one -env flag per var so the guest launcher sees
+                // them independently.
+                Config.envProp.split(';').map(s => s.trim()).filter(s => s.length>0).forEach(function(ev){
+                    params.push("-env");
+                    params.push(ev);
+                });
             }
 
 			if (!Config.loadDesktop) {
@@ -735,6 +849,14 @@
           canvas.addEventListener("webglcontextlost", function(e) { alert('WebGL context lost. You will need to reload the page.'); e.preventDefault(); }, false);
           canvas.width  = 800;
           canvas.height = 600;
+          // SDL's GL window creation in emscripten sometimes shrinks the
+          // canvas to a degenerate 1x1 while probing. Veto that.
+          setInterval(function(){
+              if (canvas.width < 320 || canvas.height < 200) {
+                  console.warn('[shell] canvas size', canvas.width+'x'+canvas.height, '— restoring 800x600');
+                  canvas.width = 800; canvas.height = 600;
+              }
+          }, 500);
           return canvas;
         })(),
         setStatus: function(text) {
