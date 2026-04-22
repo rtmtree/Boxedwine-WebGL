@@ -27,6 +27,8 @@
             <button id="savestatebtn" style="display: none" onclick="saveState();">Save State</button>
             <button id="loadstatebtn" style="display: none" onclick="document.getElementById('loadstatefile').click();">Load State</button>
             <input style="display: none" id="loadstatefile" type="file" accept=".boxedstate" onchange="loadState(event.target.files[0]);" />
+            <button id="persistpcbtn" style="display: none" onclick="persistPcStorage();" title="Save current PC state to browser storage. It will auto-load next time you open this page.">Persist PC Storage</button>
+            <button id="clearpersistbtn" style="display: none" onclick="clearPersistedPcStorage();" title="Clear the auto-loaded persisted PC state.">Clear Persisted</button>
             <a style="display: none" id="modalLink" href="#openModal">Open</a>
             <a style="display: none" id="modalLinkExe" href="#openModalExe">Open</a>
 

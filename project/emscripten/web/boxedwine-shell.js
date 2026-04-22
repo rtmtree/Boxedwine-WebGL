@@ -68,16 +68,6 @@
                 }
                 console.log("Interpreted app=" + exeName + " as zip=" + Config.appZipFile + " program=" + Config.Program);
             }
-
-            // Default to ski32 when no app has been picked from URL/payload.
-            if (Config.appZipFile.length === 0 && Config.appPayload.length === 0) {
-                Config.appZipFile = "ski32.zip";
-                console.log("Defaulting app zip to: ski32.zip");
-            }
-            if (Config.Program.length === 0 && Config.appZipFile === "ski32.zip") {
-                Config.Program = "ski32.exe";
-                console.log("Defaulting program to: ski32.exe");
-            }
         }
         function allowParameterOverride() {
             if(Config.urlParams.length >0) {
@@ -451,6 +441,10 @@
             document.getElementById('sound-checkbox').style.display = 'none';
             document.getElementById('savestatebtn').style.display = '';
             document.getElementById('loadstatebtn').style.display = '';
+            document.getElementById('persistpcbtn').style.display = '';
+            hasPersistedStorage().then(function(has){
+                if (has) document.getElementById('clearpersistbtn').style.display = '';
+            });
 
             var params = getEmulatorParams();
             for(var i=0; i < params.length; i++) {
@@ -459,6 +453,11 @@
 
             document.getElementById('startbtn').textContent = "Running...";
             Module["removeRunDependency"]("setupBoxedWine");
+
+            // If the user previously pressed "Persist PC Storage", load that
+            // snapshot once wine has finished booting (we wait for the MIPS
+            // counter to tick, indicating the scheduler is really running).
+            autoLoadPersistedPcStorage();
         }
         var initialSetup = function(){
             console.log("running initial setup");
@@ -918,6 +917,165 @@ function loadState(file) {
         }
     };
     reader.readAsArrayBuffer(file);
+}
+
+// --- Persisted PC storage ---
+// "Persist PC Storage" = take a snapshot of the emulator's entire state and
+// stash it in IndexedDB. On the next page load, we auto-load that snapshot
+// after Wine finishes booting, so any folders/files/settings the user
+// created are already present.
+var PERSIST_DB_NAME = 'boxedwine-persisted-state';
+var PERSIST_STORE = 'state';
+var PERSIST_KEY = 'current';
+
+function openPersistDB() {
+    return new Promise(function(resolve, reject) {
+        var req = indexedDB.open(PERSIST_DB_NAME, 1);
+        req.onupgradeneeded = function() { req.result.createObjectStore(PERSIST_STORE); };
+        req.onsuccess = function() { resolve(req.result); };
+        req.onerror = function() { reject(req.error); };
+    });
+}
+
+function hasPersistedStorage() {
+    return openPersistDB().then(function(db) {
+        return new Promise(function(resolve, reject) {
+            var tx = db.transaction(PERSIST_STORE, 'readonly');
+            var req = tx.objectStore(PERSIST_STORE).getKey(PERSIST_KEY);
+            req.onsuccess = function() { resolve(req.result !== undefined); db.close(); };
+            req.onerror = function() { reject(req.error); db.close(); };
+        });
+    }).catch(function(){ return false; });
+}
+
+function persistPcStorage() {
+    if (!isRunning) {
+        alert("Emulator is not running.");
+        return;
+    }
+    var btn = document.getElementById('persistpcbtn');
+    var originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Persisting...";
+
+    Module._requestSaveState();
+    var pollSave = function() {
+        if (!Module._isStateReady()) {
+            setTimeout(pollSave, 50);
+            return;
+        }
+        if (!Module._isStateSuccess()) {
+            window.__boxedwineSaveChunks = null;
+            btn.disabled = false;
+            btn.textContent = originalText;
+            alert("Failed to persist state. Check console.");
+            return;
+        }
+        var chunks = window.__boxedwineSaveChunks || [];
+        var total = window.__boxedwineSaveTotal || 0;
+        window.__boxedwineSaveChunks = null;
+        window.__boxedwineSaveTotal = 0;
+
+        var blob = new Blob(chunks, {type: "application/octet-stream"});
+        blob.arrayBuffer().then(function(buf) {
+            var bytes = new Uint8Array(buf);
+            return openPersistDB().then(function(db) {
+                return new Promise(function(resolve, reject) {
+                    var tx = db.transaction(PERSIST_STORE, 'readwrite');
+                    tx.objectStore(PERSIST_STORE).put(bytes, PERSIST_KEY);
+                    tx.oncomplete = function() { db.close(); resolve(bytes.length); };
+                    tx.onerror = function() { db.close(); reject(tx.error); };
+                });
+            });
+        }).then(function(size) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+            document.getElementById('clearpersistbtn').style.display = '';
+            console.log("Persisted PC storage to IndexedDB: " + size + " bytes");
+            alert("PC storage persisted (" + (size/1048576).toFixed(1) + " MB). It will auto-load next time you open this page.");
+        }).catch(function(e) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+            console.error("Error persisting state:", e);
+            alert("Error persisting state: " + (e && e.message ? e.message : e));
+        });
+    };
+    setTimeout(pollSave, 100);
+}
+
+function clearPersistedPcStorage() {
+    if (!confirm("Clear the persisted PC storage? Next page load will boot fresh.")) return;
+    openPersistDB().then(function(db) {
+        var tx = db.transaction(PERSIST_STORE, 'readwrite');
+        tx.objectStore(PERSIST_STORE).delete(PERSIST_KEY);
+        tx.oncomplete = function() {
+            db.close();
+            document.getElementById('clearpersistbtn').style.display = 'none';
+            alert("Persisted PC storage cleared.");
+        };
+        tx.onerror = function() { db.close(); alert("Failed to clear: " + tx.error); };
+    });
+}
+
+function autoLoadPersistedPcStorage() {
+    // ?no-persist-load in the URL (or shift-reload) lets the user bypass the
+    // auto-load if the persisted state got wedged.
+    try {
+        var qs = window.location.search;
+        if (qs && qs.indexOf('no-persist-load') !== -1) {
+            console.log("Auto-load skipped (no-persist-load in URL)");
+            return;
+        }
+    } catch (_) {}
+
+    openPersistDB().then(function(db) {
+        return new Promise(function(resolve, reject) {
+            var tx = db.transaction(PERSIST_STORE, 'readonly');
+            var req = tx.objectStore(PERSIST_STORE).get(PERSIST_KEY);
+            req.onsuccess = function() { db.close(); resolve(req.result); };
+            req.onerror = function() { db.close(); reject(req.error); };
+        });
+    }).then(function(bytes) {
+        if (!bytes) {
+            console.log("No persisted state to auto-load");
+            return;
+        }
+        console.log("Persisted state found (" + (bytes.length/1048576).toFixed(1) + " MB); waiting for Wine to finish booting before auto-loading");
+
+        // Poll until the MIPS counter advances — that indicates the
+        // scheduler is executing real instructions, i.e. Wine has reached
+        // its idle loop and is ready to be overwritten by our snapshot.
+        var prevTitle = document.title;
+        var stableTicks = 0;
+        var attempts = 0;
+        var waitThenLoad = function() {
+            attempts++;
+            if (attempts > 600) {
+                console.warn("Auto-load timed out waiting for emulator to settle");
+                return;
+            }
+            var nowTitle = document.title;
+            if (nowTitle.indexOf('MIPS') !== -1 && nowTitle !== prevTitle) {
+                stableTicks++;
+            } else {
+                stableTicks = 0;
+            }
+            prevTitle = nowTitle;
+            // Need a few consecutive ticks with MIPS updating so the
+            // emulator has really started running and isn't still in
+            // early main-thread init.
+            if (stableTicks >= 2) {
+                console.log("Auto-loading persisted PC storage");
+                var file = new File([new Blob([bytes])], 'persisted.boxedstate');
+                loadState(file);
+                return;
+            }
+            setTimeout(waitThenLoad, 500);
+        };
+        setTimeout(waitThenLoad, 2000);
+    }).catch(function(e) {
+        console.error("Auto-load error:", e);
+    });
 }
 
 function ensureDir(dir) {
