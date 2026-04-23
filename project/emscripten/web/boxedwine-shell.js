@@ -1,3 +1,37 @@
+        // Install mode (?install_mode=true) hides ALL chrome except the
+        // canvas and a single "Press this when game installation is done"
+        // button at the bottom. Clicking it runs persistPcStorage() which
+        // snapshots the emulator filesystem into IndexedDB + triggers a zip
+        // download so the installed game survives the next reload.
+        (function(){
+            var search = (window.location.search || '').toLowerCase();
+            var installMode = /[?&]install_mode=(true|1|yes)\b/.test(search);
+            if (!installMode) return;
+            var apply = function(){
+                var hide = function(el){ if (el) el.style.display = 'none'; };
+                var show = function(el, d){ if (el) el.style.display = d || 'block'; };
+                hide(document.getElementById('controlsPanel'));
+                hide(document.getElementById('controlsToggleBtn'));
+                hide(document.getElementById('fpsOverlay'));
+                hide(document.getElementById('output'));
+                // Keep the canvas visible.
+                var btn = document.getElementById('installDoneBtn');
+                if (btn) {
+                    btn.style.display = 'block';
+                    // Wrap the click so we give visible feedback + disable
+                    // the button while persistPcStorage is running.
+                    var orig = btn.onclick;
+                    btn.onclick = function(){
+                        btn.disabled = true;
+                        btn.textContent = 'Saving PC storage…';
+                        try { persistPcStorage(); } catch(e) { console.error(e); }
+                    };
+                }
+            };
+            if (document.readyState !== 'loading') apply();
+            else document.addEventListener('DOMContentLoaded', apply);
+        })();
+
         // Honor ?dmt=true URL param to pre-check the "Disable Mouse Tracking"
         // box on load. Default (missing or false) leaves it unchecked so the
         // cursor follows the mouse like a normal Diablo install.
@@ -13,26 +47,53 @@
             else document.addEventListener('DOMContentLoaded', apply);
         })();
 
-        // "Disable Mouse Tracking (Enhance Perf)" checkbox. When CHECKED:
-        // mousemove events are dropped at the DOM capture phase before
-        // reaching SDL — the in-game cursor stays fixed but click-to-walk
-        // still works and Diablo runs at full 20 FPS. When unchecked
-        // (default): events reach SDL, the cursor follows your real mouse,
-        // FPS drops to ~10–12 because each event runs a full SDL
-        // event-queue tick in guest wine.
+        // Click-only mouse tracking: normal mousemove events are dropped at
+        // the DOM capture phase (so the game doesn't burn CPU chasing every
+        // motion), but right before any click/mousedown/mouseup fires we
+        // synthesize ONE mousemove at the click position so the guest
+        // cursor jumps there. Net result: clicks land where the user meant,
+        // FPS stays at ~20 because there's no per-motion cost.
+        //
+        // The "Disable Mouse Tracking (Enhance Perf)" hidden checkbox (set
+        // via ?dmt=true URL param) reverts to full mouse tracking when
+        // UNCHECKED. Default is checked-behavior (click-only) — see below.
         (function(){
-            var getDisabled = function(){
-                var cb = document.getElementById('disableMouseTracking');
-                return cb && cb.checked;
+            var isSynthetic = false;
+            var gate = function(e){
+                if (isSynthetic) return;                      // let our own synthesized mousemove through
+                e.stopImmediatePropagation();                  // drop every other mousemove
+            };
+            var prepareClick = function(e){
+                // Before the click fires, fire a mousemove at the click
+                // position so the guest cursor is at (clientX,clientY) when
+                // the click event lands. Use isSynthetic flag to bypass gate.
+                var c = document.getElementById('canvas');
+                if (!c) return;
+                isSynthetic = true;
+                try {
+                    c.dispatchEvent(new MouseEvent('mousemove', {
+                        clientX: e.clientX, clientY: e.clientY,
+                        screenX: e.screenX, screenY: e.screenY,
+                        button: 0, buttons: 0,
+                        bubbles: true, cancelable: true, view: window
+                    }));
+                } finally {
+                    isSynthetic = false;
+                }
             };
             var installGate = function(){
                 var c = document.getElementById('canvas');
                 if (!c) { setTimeout(installGate, 50); return; }
-                c.addEventListener('mousemove', function(e){
-                    if (getDisabled()) {
-                        e.stopImmediatePropagation();
-                    }
-                }, true);
+                c.addEventListener('mousemove', gate, true);
+                // Fire synthetic mousemove BEFORE the click-related events
+                // reach emscripten. Capture phase + useCapture=true means
+                // our listener runs first, does its sync dispatch, then the
+                // event continues to SDL which will process move-then-click
+                // in order.
+                c.addEventListener('mousedown', prepareClick, true);
+                c.addEventListener('mouseup', prepareClick, true);
+                c.addEventListener('click', prepareClick, true);
+                c.addEventListener('contextmenu', prepareClick, true);
             };
             if (document.readyState !== 'loading') installGate();
             else document.addEventListener('DOMContentLoaded', installGate);
@@ -1244,9 +1305,10 @@ function loadStateFromBytes(bytes) {
 // Auto-fetch + auto-load a pre-baked save state so first-load users don't have
 // to sit through Diablo's boot sequence. Triggered once the emulator has been
 // running long enough to accept a state load (the save image is a full memory
-// snapshot so boxedwine must already be up). Opt out with ?autoload=0.
+// snapshot so boxedwine must already be up). Opt IN with ?autoload=1 — default
+// is disabled so first-time visitors see a normal Diablo boot.
 (function(){
-    if ((window.location.search||'').indexOf('autoload=0') !== -1) return;
+    if ((window.location.search||'').indexOf('autoload=1') === -1) return;
     if (typeof fetch !== 'function') return;
     var savedBytes = null;
     var fetched = false;
