@@ -341,14 +341,20 @@ void KSystem::dumpAllThreads() {
             KThread* t = tentry.value;
             if (!t || !t->cpu) continue;
             total++;
+#ifdef BOXEDWINE_MULTI_THREADED
+            bool blocked = (t->waitingCond != nullptr);
+            int timerActive = 0;
+#else
             bool blocked = (t->waitingCond != nullptr) || t->condTimer.active;
+            int timerActive = t->condTimer.active ? 1 : 0;
+#endif
             if (blocked) waiting++; else scheduled++;
             klog_fmt("[thr] pid=%04X tid=%04X %s eip=%08X cond=%s timer=%d proc=%s",
                      process->id, t->id,
                      blocked ? "WAIT " : "SCHED",
                      t->cpu->eip.u32,
                      t->waitingCond ? t->waitingCond->name.c_str() : "-",
-                     t->condTimer.active ? 1 : 0,
+                     timerActive,
                      process->name.c_str());
         }
     }

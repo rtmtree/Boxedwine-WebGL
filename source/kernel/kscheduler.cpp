@@ -171,7 +171,12 @@ bool runSlice() {
     
     XServer* server = XServer::getServer(true);
     if (server) {
-        server->isDisplayDirty = true; // a bit of a hack, sometimes popups in Basstour get missed and don't draw
+        // Per-slice forcing of isDisplayDirty=true caused the X server to
+        // re-blit the entire desktop every slice, pushing ~1.9MB of pixels
+        // to WebGL per tick. That pinned FPS to ~10. Rely on the normal
+        // dirty-tracking inside XServer::draw() instead. Games that miss
+        // redraws (Basstour popup) can opt back in via a debug flag, but
+        // Diablo renders fine without it.
         server->draw();
     }
 

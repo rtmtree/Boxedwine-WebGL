@@ -1,89 +1,3 @@
-        // Honor ?dmt=true URL param to pre-check the "Disable Mouse Tracking"
-        // box on load. Default (missing or false) leaves it unchecked so the
-        // cursor follows the mouse like a normal Diablo install.
-        (function(){
-            var search = (window.location.search || '').toLowerCase();
-            var dmt = /[?&]dmt=(true|1|yes)\b/.test(search);
-            var apply = function(){
-                var cb = document.getElementById('disableMouseTracking');
-                if (!cb) { setTimeout(apply, 30); return; }
-                cb.checked = dmt;
-            };
-            if (document.readyState !== 'loading') apply();
-            else document.addEventListener('DOMContentLoaded', apply);
-        })();
-
-        // "Disable Mouse Tracking (Enhance Perf)" checkbox. When CHECKED:
-        // mousemove events are dropped at the DOM capture phase before
-        // reaching SDL — the in-game cursor stays fixed but click-to-walk
-        // still works and Diablo runs at full 20 FPS. When unchecked
-        // (default): events reach SDL, the cursor follows your real mouse,
-        // FPS drops to ~10–12 because each event runs a full SDL
-        // event-queue tick in guest wine.
-        (function(){
-            var getDisabled = function(){
-                var cb = document.getElementById('disableMouseTracking');
-                return cb && cb.checked;
-            };
-            var installGate = function(){
-                var c = document.getElementById('canvas');
-                if (!c) { setTimeout(installGate, 50); return; }
-                c.addEventListener('mousemove', function(e){
-                    if (getDisabled()) {
-                        e.stopImmediatePropagation();
-                    }
-                }, true);
-            };
-            if (document.readyState !== 'loading') installGate();
-            else document.addEventListener('DOMContentLoaded', installGate);
-        })();
-
-        // Emscripten's SDL mouse-event handler occasionally calls
-        // document.querySelector('') which throws "SyntaxError: The provided
-        // selector is empty". The throw aborts the handler partway so the
-        // mouse event data never reaches the game. Patch querySelector to
-        // return null for empty/falsy selectors — one-line fix, zero
-        // per-event overhead.
-        (function(){
-            var origQS = Document.prototype.querySelector;
-            Document.prototype.querySelector = function(sel){
-                if (!sel || sel === '') return null;
-                return origQS.call(this, sel);
-            };
-            var origQSA = Document.prototype.querySelectorAll;
-            Document.prototype.querySelectorAll = function(sel){
-                if (!sel || sel === '') return [];
-                return origQSA.call(this, sel);
-            };
-        })();
-
-        // Make the canvas focusable and focus it automatically so mouse/key
-        // events flow to the guest without the user first having to click
-        // inside the game area. Runs on DOMContentLoaded since the element
-        // may not exist yet when this script loads.
-        function __wireCanvasFocus() {
-            var c = document.getElementById('canvas');
-            if (!c) return;
-            if (c.tabIndex < 0 || c.tabIndex === undefined) c.tabIndex = 0;
-            c.style.outline = 'none'; // avoid visible focus ring
-            // Focus immediately and on any mouse enter / click, and keep it
-            // focused by re-focusing on blur (otherwise the "Show console"
-            // checkbox toggling focus steals it).
-            try { c.focus({preventScroll:true}); } catch(e) { c.focus(); }
-            c.addEventListener('mouseenter', function(){ c.focus({preventScroll:true}); });
-            c.addEventListener('click', function(){ c.focus({preventScroll:true}); });
-            // Also focus canvas if any other element steals focus
-            window.addEventListener('click', function(e){
-                var t = e.target;
-                // Keep the form controls usable; only refocus if clicking outside them.
-                if (t && t !== c && !(t.tagName === 'INPUT' || t.tagName === 'BUTTON' || t.tagName === 'TEXTAREA' || t.tagName === 'A')) {
-                    c.focus({preventScroll:true});
-                }
-            });
-        }
-        if (document.readyState !== 'loading') setTimeout(__wireCanvasFocus, 0);
-        else document.addEventListener('DOMContentLoaded', __wireCanvasFocus);
-
         // Filter out D3DKMT stub spam from wine console so we can see other
         // log lines. wine's D3DKMTOpenAdapterFromHdc stub fires per-frame from
         // multiple render threads and floods the 500-line console buffer.
@@ -362,20 +276,14 @@
             			let resNumbers = resolution.split('x');
             			if (!(resNumbers.length == 2 && isNumber(resNumbers[0]) && isNumber(resNumbers[1]))) {
             				resolution = null;
-            			}
+            			}            				
             		} else {
             			resolution = null;
             		}
             	}
             }
-            // Default to 640x480 (Diablo 1's native resolution) when no
-            // explicit setting. The wine desktop otherwise defaults to
-            // 800x600 which pushes 35% more pixels per frame; with 640x480
-            // the blit bandwidth drops enough that we hit Diablo's native
-            // 20 FPS on the CPU emulation budget.
             if (resolution == null) {
-                resolution = "640x480";
-                console.log("defaulting Resolution to: 640x480");
+            	console.log("not setting Resolution");
             } else {
             	console.log("setting Resolution to: "+resolution);
             }
@@ -1076,34 +984,6 @@ window.__boxedwineSaveEnd = function() {
     return true;
 };
 
-// saveStateToDisk: like saveState() but instead of triggering a download,
-// POST the serialized bytes to /save so the server overwrites
-// diablo_save.boxedstate in-place. Used by the auto-save helper so future
-// autoloads pick up the newest gameplay snapshot.
-function saveStateToDisk() {
-    if (!isRunning) { console.warn('[saveStateToDisk] not running'); return; }
-    Module._requestSaveState();
-    var poll = function() {
-        if (!Module._isStateReady()) { setTimeout(poll, 50); return; }
-        if (!Module._isStateSuccess()) {
-            console.warn('[saveStateToDisk] state save failed');
-            return;
-        }
-        var chunks = window.__boxedwineSaveChunks || [];
-        var total = window.__boxedwineSaveTotal || 0;
-        window.__boxedwineSaveChunks = null;
-        var blob = new Blob(chunks, {type: 'application/octet-stream'});
-        fetch('/save', { method: 'POST', body: blob, headers: {'Content-Type': 'application/octet-stream'} })
-            .then(function(r){
-                if (r.ok) console.log('[saveStateToDisk] saved '+total+' bytes to diablo_save.boxedstate');
-                else console.warn('[saveStateToDisk] server returned '+r.status);
-            })
-            .catch(function(e){ console.warn('[saveStateToDisk] post failed:', e); });
-    };
-    setTimeout(poll, 100);
-}
-window.saveStateToDisk = saveStateToDisk;
-
 function saveState() {
     if (!isRunning) {
         alert("Emulator is not running.");
@@ -1305,19 +1185,12 @@ function loadStateFromBytes(bytes) {
             mipsLine = document.getElementById('mipsLine');
         }
         if (!overlay || !fpsLine) return;
-        var showFPSBox = document.getElementById('showFPS');
-        var wantVisible = !showFPSBox || showFPSBox.checked;
-        if (!wantVisible) {
-            overlay.style.display = 'none';
-            return;
-        }
-        if (!window.Module || !Module.calledRun || !Module._diagPutBitsDirty) {
+        if (!window.Module || !Module._diagPutBitsDirty) {
             overlay.style.display = 'none';
             return;
         }
         overlay.style.display = 'block';
-        var d;
-        try { d = Module._diagPutBitsDirty(); } catch(e) { return; }
+        var d = Module._diagPutBitsDirty();
         var now = performance.now();
         if (lastT) {
             var dtMs = now - lastT;

@@ -396,5 +396,20 @@ void diagDumpThreads() {
 
 } // extern "C"
 
+#else // BOXEDWINE_MULTI_THREADED -- stub out the single-threaded-only exports
+
+#include <emscripten.h>
+#include <emscripten/emscripten.h>
+
+extern "C" {
+EMSCRIPTEN_KEEPALIVE void requestSaveState() {}
+EMSCRIPTEN_KEEPALIVE int isStateReady() { return 1; }
+EMSCRIPTEN_KEEPALIVE int isStateSuccess() { return 0; }
+EMSCRIPTEN_KEEPALIVE void requestLoadState() {}
+EMSCRIPTEN_KEEPALIVE unsigned int diagScheduledCount() { return 0; }
+EMSCRIPTEN_KEEPALIVE unsigned int diagTimerCount() { return 0; }
+EMSCRIPTEN_KEEPALIVE void diagDumpThreads() { KSystem::dumpAllThreads(); }
+}
+
 #endif // BOXEDWINE_MULTI_THREADED
 #endif // __EMSCRIPTEN__

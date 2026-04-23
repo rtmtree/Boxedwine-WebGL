@@ -935,6 +935,22 @@ function ___assert_fail(condition, filename, line, func) {
   return abort(`Assertion failed: ${UTF8ToString(condition)}, at: ` + [ filename ? UTF8ToString(filename) : "unknown filename", line, func ? UTF8ToString(func) : "unknown function" ]);
 }
 
+var wasmTableMirror = [];
+
+var getWasmTableEntry = funcPtr => {
+  var func = wasmTableMirror[funcPtr];
+  if (!func) {
+    /** @suppress {checkTypes} */ wasmTableMirror[funcPtr] = func = wasmTable.get(funcPtr);
+  }
+  /** @suppress {checkTypes} */ assert(wasmTable.get(funcPtr) == func, "JavaScript-side Wasm function table mirror is out of date!");
+  return func;
+};
+
+function ___call_sighandler(fp, sig) {
+  fp >>>= 0;
+  return getWasmTableEntry(fp)(sig);
+}
+
 var PATH = {
   isAbs: path => path.charAt(0) === "/",
   splitPath: filename => {
@@ -5587,6 +5603,13 @@ function __emscripten_lookup_name(name) {
   return inetPton4(DNS.lookup_name(nameString));
 }
 
+var runtimeKeepaliveCounter = 0;
+
+var __emscripten_runtime_keepalive_clear = () => {
+  noExitRuntime = false;
+  runtimeKeepaliveCounter = 0;
+};
+
 var isLeapYear = year => year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 
 var MONTH_DAYS_LEAP_CUMULATIVE = [ 0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335 ];
@@ -5680,6 +5703,103 @@ function __munmap_js(addr, len, prot, flags, fd, offset) {
   }
 }
 
+var timers = {};
+
+var handleException = e => {
+  if (e instanceof ExitStatus || e == "unwind") return EXITSTATUS;
+  if (typeof WebAssembly !== "undefined" && WebAssembly.Exception && e instanceof WebAssembly.Exception) {
+    if (!window.__suppressedWasmExceptions) window.__suppressedWasmExceptions = 0;
+    window.__suppressedWasmExceptions++;
+    return 0;
+  }
+  if (e instanceof TypeError && /GLctx|Cannot read properties of undefined/.test(String(e && e.message))) {
+    if (!window.__suppressedGLctxErrors) window.__suppressedGLctxErrors = 0;
+    window.__suppressedGLctxErrors++;
+    return 0;
+  }
+  // fall through:
+  if (e instanceof ExitStatus || e == "unwind") {
+    return EXITSTATUS;
+  }
+  checkStackCookie();
+  if (e instanceof WebAssembly.RuntimeError) {
+    if (_emscripten_stack_get_current() <= 0) {
+      err("Stack overflow detected.  You can try increasing -sSTACK_SIZE (currently set to 65536)");
+    }
+  }
+  quit_(1, e);
+};
+
+var keepRuntimeAlive = () => noExitRuntime || runtimeKeepaliveCounter > 0;
+
+var _proc_exit = code => {
+  EXITSTATUS = code;
+  if (!keepRuntimeAlive()) {
+    Module["onExit"]?.(code);
+    ABORT = true;
+  }
+  quit_(code, new ExitStatus(code));
+};
+
+/** @param {boolean|number=} implicit */ var exitJS = (status, implicit) => {
+  EXITSTATUS = status;
+  checkUnflushedContent();
+  // if exit() was called explicitly, warn the user if the runtime isn't actually being shut down
+  if (keepRuntimeAlive() && !implicit) {
+    var msg = `program exited (with status: ${status}), but keepRuntimeAlive() is set (counter=${runtimeKeepaliveCounter}) due to an async operation, so halting execution but not exiting the runtime or preventing further async execution (you can use emscripten_force_exit, if you want to force a true shutdown)`;
+    err(msg);
+  }
+  _proc_exit(status);
+};
+
+var _exit = exitJS;
+
+var maybeExit = () => {
+  if (!keepRuntimeAlive()) {
+    try {
+      _exit(EXITSTATUS);
+    } catch (e) {
+      handleException(e);
+    }
+  }
+};
+
+var callUserCallback = func => {
+  if (ABORT) {
+    err("user callback triggered after runtime exited or application aborted.  Ignoring.");
+    return;
+  }
+  try {
+    func();
+    maybeExit();
+  } catch (e) {
+    handleException(e);
+  }
+};
+
+var _emscripten_get_now = () => performance.now();
+
+var __setitimer_js = (which, timeout_ms) => {
+  // First, clear any existing timer.
+  if (timers[which]) {
+    clearTimeout(timers[which].id);
+    delete timers[which];
+  }
+  // A timeout of zero simply cancels the current timeout so we have nothing
+  // more to do.
+  if (!timeout_ms) return 0;
+  var id = setTimeout(() => {
+    assert(which in timers);
+    delete timers[which];
+    callUserCallback(() => __emscripten_timeout(which, _emscripten_get_now()));
+  }, timeout_ms);
+  timers[which] = {
+    id,
+    timeout_ms
+  };
+  return 0;
+};
+
 var __tzset_js = function(timezone, daylight, std_name, dst_name) {
   timezone >>>= 0;
   daylight >>>= 0;
@@ -5730,8 +5850,6 @@ var __tzset_js = function(timezone, daylight, std_name, dst_name) {
   }
 };
 
-var _emscripten_get_now = () => performance.now();
-
 var _emscripten_date_now = () => Date.now();
 
 var nowIsMonotonic = 1;
@@ -5758,73 +5876,6 @@ function _clock_time_get(clk_id, ignored_precision, ptime) {
   HEAP64[((ptime) >>> 3) >>> 0] = BigInt(nsec);
   return 0;
 }
-
-var handleException = e => {
-  // Certain exception types we do not treat as errors since they are used for
-  // internal control flow.
-  // 1. ExitStatus, which is thrown by exit()
-  // 2. "unwind", which is thrown by emscripten_unwind_to_js_event_loop() and others
-  //    that wish to return to JS event loop.
-  if (e instanceof ExitStatus || e == "unwind") {
-    return EXITSTATUS;
-  }
-  checkStackCookie();
-  if (e instanceof WebAssembly.RuntimeError) {
-    if (_emscripten_stack_get_current() <= 0) {
-      err("Stack overflow detected.  You can try increasing -sSTACK_SIZE (currently set to 65536)");
-    }
-  }
-  quit_(1, e);
-};
-
-var runtimeKeepaliveCounter = 0;
-
-var keepRuntimeAlive = () => noExitRuntime || runtimeKeepaliveCounter > 0;
-
-var _proc_exit = code => {
-  EXITSTATUS = code;
-  if (!keepRuntimeAlive()) {
-    Module["onExit"]?.(code);
-    ABORT = true;
-  }
-  quit_(code, new ExitStatus(code));
-};
-
-/** @param {boolean|number=} implicit */ var exitJS = (status, implicit) => {
-  EXITSTATUS = status;
-  checkUnflushedContent();
-  // if exit() was called explicitly, warn the user if the runtime isn't actually being shut down
-  if (keepRuntimeAlive() && !implicit) {
-    var msg = `program exited (with status: ${status}), but keepRuntimeAlive() is set (counter=${runtimeKeepaliveCounter}) due to an async operation, so halting execution but not exiting the runtime or preventing further async execution (you can use emscripten_force_exit, if you want to force a true shutdown)`;
-    err(msg);
-  }
-  _proc_exit(status);
-};
-
-var _exit = exitJS;
-
-var maybeExit = () => {
-  if (!keepRuntimeAlive()) {
-    try {
-      _exit(EXITSTATUS);
-    } catch (e) {
-      handleException(e);
-    }
-  }
-};
-
-var callUserCallback = func => {
-  if (ABORT) {
-    err("user callback triggered after runtime exited or application aborted.  Ignoring.");
-    return;
-  }
-  try {
-    func();
-    maybeExit();
-  } catch (e) {
-    handleException(e);
-  }
-};
 
 function getFullscreenElement() {
   return document.fullscreenElement || document.mozFullScreenElement || document.webkitFullscreenElement || document.webkitCurrentFullScreenElement || document.msFullscreenElement;
@@ -7507,17 +7558,6 @@ var setCanvasElementSize = (target, width, height) => {
 
 var currentFullscreenStrategy = {};
 
-var wasmTableMirror = [];
-
-var getWasmTableEntry = funcPtr => {
-  var func = wasmTableMirror[funcPtr];
-  if (!func) {
-    /** @suppress {checkTypes} */ wasmTableMirror[funcPtr] = func = wasmTable.get(funcPtr);
-  }
-  /** @suppress {checkTypes} */ assert(wasmTable.get(funcPtr) == func, "JavaScript-side Wasm function table mirror is out of date!");
-  return func;
-};
-
 var registerRestoreOldStyle = canvas => {
   var canvasSize = getCanvasElementSize(canvas);
   var oldWidth = canvasSize[0];
@@ -7709,11 +7749,6 @@ var _emscripten_exit_pointerlock = () => {
   return 0;
 };
 
-var __emscripten_runtime_keepalive_clear = () => {
-  noExitRuntime = false;
-  runtimeKeepaliveCounter = 0;
-};
-
 var _emscripten_force_exit = status => {
   warnOnce("emscripten_force_exit cannot actually shut down the runtime, as the build does not have EXIT_RUNTIME set");
   __emscripten_runtime_keepalive_clear();
@@ -7801,6 +7836,7 @@ var _emscripten_glBeginQueryEXT = (target, id) => {
 };
 
 function _emscripten_glBindAttribLocation(program, index, name) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   name >>>= 0;
   GLctx.bindAttribLocation(GL.programs[program], index, UTF8ToString(name));
 }
@@ -7838,6 +7874,7 @@ var _emscripten_glBlendFunc = (x0, x1) => GLctx.blendFunc(x0, x1);
 var _emscripten_glBlendFuncSeparate = (x0, x1, x2, x3) => GLctx.blendFuncSeparate(x0, x1, x2, x3);
 
 function _emscripten_glBufferData(target, size, data, usage) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   size >>>= 0;
   data >>>= 0;
   // N.b. here first form specifies a heap subarray, second form an integer
@@ -7848,6 +7885,7 @@ function _emscripten_glBufferData(target, size, data, usage) {
 }
 
 function _emscripten_glBufferSubData(target, offset, size, data) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   offset >>>= 0;
   size >>>= 0;
   data >>>= 0;
@@ -7877,6 +7915,7 @@ var _emscripten_glCompileShader = shader => {
 };
 
 function _emscripten_glCompressedTexImage2D(target, level, internalFormat, width, height, border, imageSize, data) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   data >>>= 0;
   // `data` may be null here, which means "allocate uniniitalized space but
   // don't upload" in GLES parlance, but `compressedTexImage2D` requires the
@@ -7887,6 +7926,7 @@ function _emscripten_glCompressedTexImage2D(target, level, internalFormat, width
 }
 
 function _emscripten_glCompressedTexSubImage2D(target, level, xoffset, yoffset, width, height, format, imageSize, data) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   data >>>= 0;
   GLctx.compressedTexSubImage2D(target, level, xoffset, yoffset, width, height, format, HEAPU8.subarray((data) >>> 0, data + imageSize >>> 0));
 }
@@ -7917,6 +7957,7 @@ var _emscripten_glCreateShader = shaderType => {
 var _emscripten_glCullFace = x0 => GLctx.cullFace(x0);
 
 function _emscripten_glDeleteBuffers(n, buffers) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   buffers >>>= 0;
   for (var i = 0; i < n; i++) {
     var id = HEAP32[(((buffers) + (i * 4)) >>> 2) >>> 0];
@@ -7931,6 +7972,7 @@ function _emscripten_glDeleteBuffers(n, buffers) {
 }
 
 function _emscripten_glDeleteFramebuffers(n, framebuffers) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   framebuffers >>>= 0;
   for (var i = 0; i < n; ++i) {
     var id = HEAP32[(((framebuffers) + (i * 4)) >>> 2) >>> 0];
@@ -7958,6 +8000,7 @@ var _emscripten_glDeleteProgram = id => {
 };
 
 function _emscripten_glDeleteQueriesEXT(n, ids) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   ids >>>= 0;
   for (var i = 0; i < n; i++) {
     var id = HEAP32[(((ids) + (i * 4)) >>> 2) >>> 0];
@@ -7970,6 +8013,7 @@ function _emscripten_glDeleteQueriesEXT(n, ids) {
 }
 
 function _emscripten_glDeleteRenderbuffers(n, renderbuffers) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   renderbuffers >>>= 0;
   for (var i = 0; i < n; i++) {
     var id = HEAP32[(((renderbuffers) + (i * 4)) >>> 2) >>> 0];
@@ -7996,6 +8040,7 @@ var _emscripten_glDeleteShader = id => {
 };
 
 function _emscripten_glDeleteTextures(n, textures) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   textures >>>= 0;
   for (var i = 0; i < n; i++) {
     var id = HEAP32[(((textures) + (i * 4)) >>> 2) >>> 0];
@@ -8010,6 +8055,7 @@ function _emscripten_glDeleteTextures(n, textures) {
 }
 
 function _emscripten_glDeleteVertexArrays(n, vaos) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   vaos >>>= 0;
   for (var i = 0; i < n; i++) {
     var id = HEAP32[(((vaos) + (i * 4)) >>> 2) >>> 0];
@@ -8051,6 +8097,7 @@ var _emscripten_glDrawArraysInstancedANGLE = _emscripten_glDrawArraysInstanced;
 var tempFixedLengthArray = [];
 
 function _emscripten_glDrawBuffers(n, bufs) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   bufs >>>= 0;
   var bufArray = tempFixedLengthArray[n];
   for (var i = 0; i < n; i++) {
@@ -8062,11 +8109,13 @@ function _emscripten_glDrawBuffers(n, bufs) {
 var _emscripten_glDrawBuffersWEBGL = _emscripten_glDrawBuffers;
 
 function _emscripten_glDrawElements(mode, count, type, indices) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   indices >>>= 0;
   GLctx.drawElements(mode, count, type, indices);
 }
 
 function _emscripten_glDrawElementsInstanced(mode, count, type, indices, primcount) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   indices >>>= 0;
   GLctx.drawElementsInstanced(mode, count, type, indices, primcount);
 }
@@ -8098,16 +8147,19 @@ var _emscripten_glFramebufferTexture2D = (target, attachment, textarget, texture
 var _emscripten_glFrontFace = x0 => GLctx.frontFace(x0);
 
 function _emscripten_glGenBuffers(n, buffers) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   buffers >>>= 0;
   GL.genObject(n, buffers, "createBuffer", GL.buffers);
 }
 
 function _emscripten_glGenFramebuffers(n, ids) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   ids >>>= 0;
   GL.genObject(n, ids, "createFramebuffer", GL.framebuffers);
 }
 
 function _emscripten_glGenQueriesEXT(n, ids) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   ids >>>= 0;
   for (var i = 0; i < n; i++) {
     var query = GLctx.disjointTimerQueryExt["createQueryEXT"]();
@@ -8124,16 +8176,19 @@ function _emscripten_glGenQueriesEXT(n, ids) {
 }
 
 function _emscripten_glGenRenderbuffers(n, renderbuffers) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   renderbuffers >>>= 0;
   GL.genObject(n, renderbuffers, "createRenderbuffer", GL.renderbuffers);
 }
 
 function _emscripten_glGenTextures(n, textures) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   textures >>>= 0;
   GL.genObject(n, textures, "createTexture", GL.textures);
 }
 
 function _emscripten_glGenVertexArrays(n, arrays) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   arrays >>>= 0;
   GL.genObject(n, arrays, "createVertexArray", GL.vaos);
 }
@@ -8155,6 +8210,7 @@ var __glGetActiveAttribOrUniform = (funcName, program, index, bufSize, length, s
 };
 
 function _emscripten_glGetActiveAttrib(program, index, bufSize, length, size, type, name) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   length >>>= 0;
   size >>>= 0;
   type >>>= 0;
@@ -8163,6 +8219,7 @@ function _emscripten_glGetActiveAttrib(program, index, bufSize, length, size, ty
 }
 
 function _emscripten_glGetActiveUniform(program, index, bufSize, length, size, type, name) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   length >>>= 0;
   size >>>= 0;
   type >>>= 0;
@@ -8171,6 +8228,7 @@ function _emscripten_glGetActiveUniform(program, index, bufSize, length, size, t
 }
 
 function _emscripten_glGetAttachedShaders(program, maxCount, count, shaders) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   count >>>= 0;
   shaders >>>= 0;
   var result = GLctx.getAttachedShaders(GL.programs[program]);
@@ -8186,6 +8244,7 @@ function _emscripten_glGetAttachedShaders(program, maxCount, count, shaders) {
 }
 
 function _emscripten_glGetAttribLocation(program, name) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   name >>>= 0;
   return GLctx.getAttribLocation(GL.programs[program], UTF8ToString(name));
 }
@@ -8202,6 +8261,7 @@ var writeI53ToI64 = (ptr, num) => {
 };
 
 var emscriptenWebGLGet = (name_, p, type) => {
+  if (typeof GLctx === "undefined" || !GLctx) { if (p) { switch (type) { case 0: HEAP32[(p)>>>2]=0; break; case 1: HEAPU8[p]=0; break; case 2: HEAPF32[(p)>>>2]=0; break; case 4: HEAP32[(p)>>>2]=0; HEAP32[((p)+4)>>>2]=0; break; } } return; }
   // Guard against user passing a null pointer.
   // Note that GLES2 spec does not say anything about how passing a null
   // pointer should be treated.  Testing on desktop core GL 3, the application
@@ -8349,11 +8409,13 @@ var emscriptenWebGLGet = (name_, p, type) => {
 };
 
 function _emscripten_glGetBooleanv(name_, p) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   p >>>= 0;
   return emscriptenWebGLGet(name_, p, 4);
 }
 
 function _emscripten_glGetBufferParameteriv(target, value, data) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   data >>>= 0;
   if (!data) {
     // GLES2 specification does not specify how to behave if data is a null
@@ -8372,11 +8434,13 @@ var _emscripten_glGetError = () => {
 };
 
 function _emscripten_glGetFloatv(name_, p) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   p >>>= 0;
   return emscriptenWebGLGet(name_, p, 2);
 }
 
 function _emscripten_glGetFramebufferAttachmentParameteriv(target, attachment, pname, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   var result = GLctx.getFramebufferAttachmentParameter(target, attachment, pname);
   if (result instanceof WebGLRenderbuffer || result instanceof WebGLTexture) {
@@ -8386,11 +8450,13 @@ function _emscripten_glGetFramebufferAttachmentParameteriv(target, attachment, p
 }
 
 function _emscripten_glGetIntegerv(name_, p) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   p >>>= 0;
   return emscriptenWebGLGet(name_, p, 0);
 }
 
 function _emscripten_glGetProgramInfoLog(program, maxLength, length, infoLog) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   length >>>= 0;
   infoLog >>>= 0;
   var log = GLctx.getProgramInfoLog(GL.programs[program]);
@@ -8400,6 +8466,7 @@ function _emscripten_glGetProgramInfoLog(program, maxLength, length, infoLog) {
 }
 
 function _emscripten_glGetProgramiv(program, pname, p) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   p >>>= 0;
   if (!p) {
     // GLES2 specification does not specify how to behave if p is a null
@@ -8448,6 +8515,7 @@ function _emscripten_glGetProgramiv(program, pname, p) {
 }
 
 function _emscripten_glGetQueryObjecti64vEXT(id, pname, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   if (!params) {
     // GLES2 specification does not specify how to behave if params is a null pointer. Since calling this function does not make sense
@@ -8470,6 +8538,7 @@ function _emscripten_glGetQueryObjecti64vEXT(id, pname, params) {
 }
 
 function _emscripten_glGetQueryObjectivEXT(id, pname, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   if (!params) {
     // GLES2 specification does not specify how to behave if params is a null pointer. Since calling this function does not make sense
@@ -8493,6 +8562,7 @@ var _emscripten_glGetQueryObjectui64vEXT = _emscripten_glGetQueryObjecti64vEXT;
 var _emscripten_glGetQueryObjectuivEXT = _emscripten_glGetQueryObjectivEXT;
 
 function _emscripten_glGetQueryivEXT(target, pname, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   if (!params) {
     // GLES2 specification does not specify how to behave if params is a null pointer. Since calling this function does not make sense
@@ -8504,6 +8574,7 @@ function _emscripten_glGetQueryivEXT(target, pname, params) {
 }
 
 function _emscripten_glGetRenderbufferParameteriv(target, pname, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   if (!params) {
     // GLES2 specification does not specify how to behave if params is a null pointer. Since calling this function does not make sense
@@ -8515,6 +8586,7 @@ function _emscripten_glGetRenderbufferParameteriv(target, pname, params) {
 }
 
 function _emscripten_glGetShaderInfoLog(shader, maxLength, length, infoLog) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   length >>>= 0;
   infoLog >>>= 0;
   var log = GLctx.getShaderInfoLog(GL.shaders[shader]);
@@ -8524,6 +8596,7 @@ function _emscripten_glGetShaderInfoLog(shader, maxLength, length, infoLog) {
 }
 
 function _emscripten_glGetShaderPrecisionFormat(shaderType, precisionType, range, precision) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   range >>>= 0;
   precision >>>= 0;
   var result = GLctx.getShaderPrecisionFormat(shaderType, precisionType);
@@ -8533,6 +8606,7 @@ function _emscripten_glGetShaderPrecisionFormat(shaderType, precisionType, range
 }
 
 function _emscripten_glGetShaderSource(shader, bufSize, length, source) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   length >>>= 0;
   source >>>= 0;
   var result = GLctx.getShaderSource(GL.shaders[shader]);
@@ -8543,6 +8617,7 @@ function _emscripten_glGetShaderSource(shader, bufSize, length, source) {
 }
 
 function _emscripten_glGetShaderiv(shader, pname, p) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   p >>>= 0;
   if (!p) {
     // GLES2 specification does not specify how to behave if p is a null
@@ -8580,6 +8655,7 @@ var webglGetExtensions = () => {
 };
 
 function _emscripten_glGetString(name_) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   var ret = GL.stringCache[name_];
   if (!ret) {
     switch (name_) {
@@ -8627,6 +8703,7 @@ function _emscripten_glGetString(name_) {
 }
 
 function _emscripten_glGetTexParameterfv(target, pname, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   if (!params) {
     // GLES2 specification does not specify how to behave if params is a null
@@ -8639,6 +8716,7 @@ function _emscripten_glGetTexParameterfv(target, pname, params) {
 }
 
 function _emscripten_glGetTexParameteriv(target, pname, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   if (!params) {
     // GLES2 specification does not specify how to behave if params is a null
@@ -8692,6 +8770,7 @@ var webglPrepareUniformLocationsBeforeFirstUse = program => {
 };
 
 function _emscripten_glGetUniformLocation(program, name) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   name >>>= 0;
   name = UTF8ToString(name);
   if (program = GL.programs[program]) {
@@ -8792,16 +8871,19 @@ var webglGetUniformLocation = location => {
 };
 
 function _emscripten_glGetUniformfv(program, location, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   emscriptenWebGLGetUniform(program, location, params, 2);
 }
 
 function _emscripten_glGetUniformiv(program, location, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   emscriptenWebGLGetUniform(program, location, params, 0);
 }
 
 function _emscripten_glGetVertexAttribPointerv(index, pname, pointer) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   pointer >>>= 0;
   if (!pointer) {
     // GLES2 specification does not specify how to behave if pointer is a null
@@ -8858,6 +8940,7 @@ function _emscripten_glGetVertexAttribPointerv(index, pname, pointer) {
 };
 
 function _emscripten_glGetVertexAttribfv(index, pname, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   // N.B. This function may only be called if the vertex attribute was
   // specified using the function glVertexAttrib*f(), otherwise the results
@@ -8866,6 +8949,7 @@ function _emscripten_glGetVertexAttribfv(index, pname, params) {
 }
 
 function _emscripten_glGetVertexAttribiv(index, pname, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   // N.B. This function may only be called if the vertex attribute was
   // specified using the function glVertexAttrib*f(), otherwise the results
@@ -9011,6 +9095,7 @@ var emscriptenWebGLGetTexPixelData = (type, format, width, height, pixels, inter
 };
 
 function _emscripten_glReadPixels(x, y, width, height, format, type, pixels) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   pixels >>>= 0;
   var pixelData = emscriptenWebGLGetTexPixelData(type, format, width, height, pixels, format);
   if (!pixelData) {
@@ -9031,12 +9116,14 @@ var _emscripten_glSampleCoverage = (value, invert) => {
 var _emscripten_glScissor = (x0, x1, x2, x3) => GLctx.scissor(x0, x1, x2, x3);
 
 function _emscripten_glShaderBinary(count, shaders, binaryformat, binary, length) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   shaders >>>= 0;
   binary >>>= 0;
   GL.recordError(1280);
 }
 
 function _emscripten_glShaderSource(shader, count, string, length) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   string >>>= 0;
   length >>>= 0;
   var source = GL.getSource(shader, count, string, length);
@@ -9056,6 +9143,7 @@ var _emscripten_glStencilOp = (x0, x1, x2) => GLctx.stencilOp(x0, x1, x2);
 var _emscripten_glStencilOpSeparate = (x0, x1, x2, x3) => GLctx.stencilOpSeparate(x0, x1, x2, x3);
 
 function _emscripten_glTexImage2D(target, level, internalFormat, width, height, border, format, type, pixels) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   pixels >>>= 0;
   var pixelData = pixels ? emscriptenWebGLGetTexPixelData(type, format, width, height, pixels, internalFormat) : null;
   GLctx.texImage2D(target, level, internalFormat, width, height, border, format, type, pixelData);
@@ -9064,6 +9152,7 @@ function _emscripten_glTexImage2D(target, level, internalFormat, width, height, 
 var _emscripten_glTexParameterf = (x0, x1, x2) => GLctx.texParameterf(x0, x1, x2);
 
 function _emscripten_glTexParameterfv(target, pname, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   var param = HEAPF32[((params) >>> 2) >>> 0];
   GLctx.texParameterf(target, pname, param);
@@ -9072,12 +9161,14 @@ function _emscripten_glTexParameterfv(target, pname, params) {
 var _emscripten_glTexParameteri = (x0, x1, x2) => GLctx.texParameteri(x0, x1, x2);
 
 function _emscripten_glTexParameteriv(target, pname, params) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   var param = HEAP32[((params) >>> 2) >>> 0];
   GLctx.texParameteri(target, pname, param);
 }
 
 function _emscripten_glTexSubImage2D(target, level, xoffset, yoffset, width, height, format, type, pixels) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   pixels >>>= 0;
   var pixelData = pixels ? emscriptenWebGLGetTexPixelData(type, format, width, height, pixels, 0) : null;
   GLctx.texSubImage2D(target, level, xoffset, yoffset, width, height, format, type, pixelData);
@@ -9090,6 +9181,7 @@ var _emscripten_glUniform1f = (location, v0) => {
 var miniTempWebGLFloatBuffers = [];
 
 function _emscripten_glUniform1fv(location, count, value) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 288) {
     // avoid allocation when uploading few enough uniforms
@@ -9110,6 +9202,7 @@ var _emscripten_glUniform1i = (location, v0) => {
 var miniTempWebGLIntBuffers = [];
 
 function _emscripten_glUniform1iv(location, count, value) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 288) {
     // avoid allocation when uploading few enough uniforms
@@ -9128,6 +9221,7 @@ var _emscripten_glUniform2f = (location, v0, v1) => {
 };
 
 function _emscripten_glUniform2fv(location, count, value) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 144) {
     // avoid allocation when uploading few enough uniforms
@@ -9148,6 +9242,7 @@ var _emscripten_glUniform2i = (location, v0, v1) => {
 };
 
 function _emscripten_glUniform2iv(location, count, value) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 144) {
     // avoid allocation when uploading few enough uniforms
@@ -9168,6 +9263,7 @@ var _emscripten_glUniform3f = (location, v0, v1, v2) => {
 };
 
 function _emscripten_glUniform3fv(location, count, value) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 96) {
     // avoid allocation when uploading few enough uniforms
@@ -9189,6 +9285,7 @@ var _emscripten_glUniform3i = (location, v0, v1, v2) => {
 };
 
 function _emscripten_glUniform3iv(location, count, value) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 96) {
     // avoid allocation when uploading few enough uniforms
@@ -9210,6 +9307,7 @@ var _emscripten_glUniform4f = (location, v0, v1, v2, v3) => {
 };
 
 function _emscripten_glUniform4fv(location, count, value) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 72) {
     // avoid allocation when uploading few enough uniforms
@@ -9236,6 +9334,7 @@ var _emscripten_glUniform4i = (location, v0, v1, v2, v3) => {
 };
 
 function _emscripten_glUniform4iv(location, count, value) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 72) {
     // avoid allocation when uploading few enough uniforms
@@ -9254,6 +9353,7 @@ function _emscripten_glUniform4iv(location, count, value) {
 }
 
 function _emscripten_glUniformMatrix2fv(location, count, transpose, value) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 72) {
     // avoid allocation when uploading few enough uniforms
@@ -9272,6 +9372,7 @@ function _emscripten_glUniformMatrix2fv(location, count, transpose, value) {
 }
 
 function _emscripten_glUniformMatrix3fv(location, count, transpose, value) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 32) {
     // avoid allocation when uploading few enough uniforms
@@ -9295,6 +9396,7 @@ function _emscripten_glUniformMatrix3fv(location, count, transpose, value) {
 }
 
 function _emscripten_glUniformMatrix4fv(location, count, transpose, value) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 18) {
     // avoid allocation when uploading few enough uniforms
@@ -9343,6 +9445,7 @@ var _emscripten_glValidateProgram = program => {
 var _emscripten_glVertexAttrib1f = (x0, x1) => GLctx.vertexAttrib1f(x0, x1);
 
 function _emscripten_glVertexAttrib1fv(index, v) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   v >>>= 0;
   GLctx.vertexAttrib1f(index, HEAPF32[v >>> 2]);
 }
@@ -9350,6 +9453,7 @@ function _emscripten_glVertexAttrib1fv(index, v) {
 var _emscripten_glVertexAttrib2f = (x0, x1, x2) => GLctx.vertexAttrib2f(x0, x1, x2);
 
 function _emscripten_glVertexAttrib2fv(index, v) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   v >>>= 0;
   GLctx.vertexAttrib2f(index, HEAPF32[v >>> 2], HEAPF32[v + 4 >>> 2]);
 }
@@ -9357,6 +9461,7 @@ function _emscripten_glVertexAttrib2fv(index, v) {
 var _emscripten_glVertexAttrib3f = (x0, x1, x2, x3) => GLctx.vertexAttrib3f(x0, x1, x2, x3);
 
 function _emscripten_glVertexAttrib3fv(index, v) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   v >>>= 0;
   GLctx.vertexAttrib3f(index, HEAPF32[v >>> 2], HEAPF32[v + 4 >>> 2], HEAPF32[v + 8 >>> 2]);
 }
@@ -9364,6 +9469,7 @@ function _emscripten_glVertexAttrib3fv(index, v) {
 var _emscripten_glVertexAttrib4f = (x0, x1, x2, x3, x4) => GLctx.vertexAttrib4f(x0, x1, x2, x3, x4);
 
 function _emscripten_glVertexAttrib4fv(index, v) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   v >>>= 0;
   GLctx.vertexAttrib4f(index, HEAPF32[v >>> 2], HEAPF32[v + 4 >>> 2], HEAPF32[v + 8 >>> 2], HEAPF32[v + 12 >>> 2]);
 }
@@ -9375,6 +9481,7 @@ var _emscripten_glVertexAttribDivisor = (index, divisor) => {
 var _emscripten_glVertexAttribDivisorANGLE = _emscripten_glVertexAttribDivisor;
 
 function _emscripten_glVertexAttribPointer(index, size, type, normalized, stride, ptr) {
+  if (typeof GLctx === "undefined" || !GLctx) return 0;
   ptr >>>= 0;
   GLctx.vertexAttribPointer(index, size, type, !!normalized, stride, ptr);
 }
@@ -10526,18 +10633,18 @@ function checkIncomingModuleAPI() {
 }
 
 var ASM_CONSTS = {
-  329696: () => {},
-  329697: () => HEAPU8.length,
-  329723: () => {
+  490284: () => {},
+  490285: () => HEAPU8.length,
+  490311: () => {
     window.__boxedwineSaveBegin && window.__boxedwineSaveBegin();
   },
-  329789: ($0, $1) => {
+  490377: ($0, $1) => {
     window.__boxedwineSaveChunk && window.__boxedwineSaveChunk($0, $1);
   },
-  329861: () => (window.__boxedwineSaveEnd && window.__boxedwineSaveEnd()) ? 1 : 0,
-  329940: () => HEAPU8.length,
-  329966: ($0, $1) => (window.__boxedwineLoadRead && window.__boxedwineLoadRead($0, $1)) || 0,
-  330050: $0 => {
+  490449: () => (window.__boxedwineSaveEnd && window.__boxedwineSaveEnd()) ? 1 : 0,
+  490528: () => HEAPU8.length,
+  490554: ($0, $1) => (window.__boxedwineLoadRead && window.__boxedwineLoadRead($0, $1)) || 0,
+  490638: $0 => {
     var str = UTF8ToString($0) + "\n\n" + "Abort/Retry/Ignore/AlwaysIgnore? [ariA] :";
     var reply = window.prompt(str, "i");
     if (reply === null) {
@@ -10545,7 +10652,7 @@ var ASM_CONSTS = {
     }
     return reply.length === 1 ? reply.charCodeAt(0) : -1;
   },
-  330265: () => {
+  490853: () => {
     if (typeof (AudioContext) !== "undefined") {
       return true;
     } else if (typeof (webkitAudioContext) !== "undefined") {
@@ -10553,7 +10660,7 @@ var ASM_CONSTS = {
     }
     return false;
   },
-  330412: () => {
+  491e3: () => {
     if ((typeof (navigator.mediaDevices) !== "undefined") && (typeof (navigator.mediaDevices.getUserMedia) !== "undefined")) {
       return true;
     } else if (typeof (navigator.webkitGetUserMedia) !== "undefined") {
@@ -10561,7 +10668,7 @@ var ASM_CONSTS = {
     }
     return false;
   },
-  330646: $0 => {
+  491234: $0 => {
     if (typeof (Module["SDL2"]) === "undefined") {
       Module["SDL2"] = {};
     }
@@ -10585,11 +10692,11 @@ var ASM_CONSTS = {
     }
     return SDL2.audioContext === undefined ? -1 : 0;
   },
-  331198: () => {
+  491786: () => {
     var SDL2 = Module["SDL2"];
     return SDL2.audioContext.sampleRate;
   },
-  331266: ($0, $1, $2, $3) => {
+  491854: ($0, $1, $2, $3) => {
     var SDL2 = Module["SDL2"];
     var have_microphone = function(stream) {
       if (SDL2.capture.silenceTimer !== undefined) {
@@ -10631,7 +10738,7 @@ var ASM_CONSTS = {
       }, have_microphone, no_microphone);
     }
   },
-  332959: ($0, $1, $2, $3) => {
+  493547: ($0, $1, $2, $3) => {
     var SDL2 = Module["SDL2"];
     SDL2.audio.scriptProcessorNode = SDL2.audioContext["createScriptProcessor"]($1, 0, $0);
     SDL2.audio.scriptProcessorNode["onaudioprocess"] = function(e) {
@@ -10663,7 +10770,7 @@ var ASM_CONSTS = {
       SDL2.audio.silenceTimer = setInterval(silence_callback, ($1 / SDL2.audioContext.sampleRate) * 1e3);
     }
   },
-  334134: ($0, $1) => {
+  494722: ($0, $1) => {
     var SDL2 = Module["SDL2"];
     var numChannels = SDL2.capture.currentCaptureBuffer.numberOfChannels;
     for (var c = 0; c < numChannels; ++c) {
@@ -10682,7 +10789,7 @@ var ASM_CONSTS = {
       }
     }
   },
-  334739: ($0, $1) => {
+  495327: ($0, $1) => {
     var SDL2 = Module["SDL2"];
     var buf = $0 >>> 2;
     var numChannels = SDL2.audio.currentOutputBuffer["numberOfChannels"];
@@ -10696,7 +10803,7 @@ var ASM_CONSTS = {
       }
     }
   },
-  335228: $0 => {
+  495816: $0 => {
     var SDL2 = Module["SDL2"];
     if ($0) {
       if (SDL2.capture.silenceTimer !== undefined) {
@@ -10730,7 +10837,12 @@ var ASM_CONSTS = {
       SDL2.audioContext = undefined;
     }
   },
-  336234: ($0, $1, $2) => {
+  496822: ($0, $1) => {
+    alert(UTF8ToString($0) + "\n\n" + UTF8ToString($1));
+  },
+  496879: () => window.innerWidth,
+  496909: () => window.innerHeight,
+  496940: ($0, $1, $2) => {
     var w = $0;
     var h = $1;
     var pixels = $2;
@@ -10801,7 +10913,7 @@ var ASM_CONSTS = {
     }
     SDL2.ctx.putImageData(SDL2.image, 0, 0);
   },
-  337700: ($0, $1, $2, $3, $4) => {
+  498406: ($0, $1, $2, $3, $4) => {
     var w = $0;
     var h = $1;
     var hot_x = $2;
@@ -10838,28 +10950,19 @@ var ASM_CONSTS = {
     stringToUTF8(url, urlBuf, url.length + 1);
     return urlBuf;
   },
-  338688: $0 => {
+  499394: $0 => {
     if (Module["canvas"]) {
       Module["canvas"].style["cursor"] = UTF8ToString($0);
     }
   },
-  338771: () => {
+  499477: () => {
     if (Module["canvas"]) {
       Module["canvas"].style["cursor"] = "none";
     }
-  },
-  338840: () => window.innerWidth,
-  338870: () => window.innerHeight,
-  338901: ($0, $1) => {
-    alert(UTF8ToString($0) + "\n\n" + UTF8ToString($1));
   }
 };
 
 // Imports from the Wasm binary.
-var _emscripten_stack_get_end = makeInvalidEarlyAccess("_emscripten_stack_get_end");
-
-var _emscripten_stack_get_base = makeInvalidEarlyAccess("_emscripten_stack_get_base");
-
 var _requestSaveState = Module["_requestSaveState"] = makeInvalidEarlyAccess("_requestSaveState");
 
 var _isStateReady = Module["_isStateReady"] = makeInvalidEarlyAccess("_isStateReady");
@@ -10871,6 +10974,20 @@ var _requestLoadState = Module["_requestLoadState"] = makeInvalidEarlyAccess("_r
 var _diagScheduledCount = Module["_diagScheduledCount"] = makeInvalidEarlyAccess("_diagScheduledCount");
 
 var _diagTimerCount = Module["_diagTimerCount"] = makeInvalidEarlyAccess("_diagTimerCount");
+
+var _diagDumpThreads = Module["_diagDumpThreads"] = makeInvalidEarlyAccess("_diagDumpThreads");
+
+var _emscripten_stack_get_end = makeInvalidEarlyAccess("_emscripten_stack_get_end");
+
+var _emscripten_stack_get_base = makeInvalidEarlyAccess("_emscripten_stack_get_base");
+
+var _diagPutBitsTotal = Module["_diagPutBitsTotal"] = makeInvalidEarlyAccess("_diagPutBitsTotal");
+
+var _diagPutBitsDirty = Module["_diagPutBitsDirty"] = makeInvalidEarlyAccess("_diagPutBitsDirty");
+
+var _diagPutBitsMaxW = Module["_diagPutBitsMaxW"] = makeInvalidEarlyAccess("_diagPutBitsMaxW");
+
+var _diagPutBitsMaxH = Module["_diagPutBitsMaxH"] = makeInvalidEarlyAccess("_diagPutBitsMaxH");
 
 var _main = Module["_main"] = makeInvalidEarlyAccess("_main");
 
@@ -10887,6 +11004,8 @@ var _htons = makeInvalidEarlyAccess("_htons");
 var _emscripten_builtin_memalign = makeInvalidEarlyAccess("_emscripten_builtin_memalign");
 
 var _ntohs = makeInvalidEarlyAccess("_ntohs");
+
+var __emscripten_timeout = makeInvalidEarlyAccess("__emscripten_timeout");
 
 var ___trap = makeInvalidEarlyAccess("___trap");
 
@@ -10919,14 +11038,19 @@ var wasmMemory = makeInvalidEarlyAccess("wasmMemory");
 var wasmTable = makeInvalidEarlyAccess("wasmTable");
 
 function assignWasmExports(wasmExports) {
-  assert(typeof wasmExports["emscripten_stack_get_end"] != "undefined", "missing Wasm export: emscripten_stack_get_end");
-  assert(typeof wasmExports["emscripten_stack_get_base"] != "undefined", "missing Wasm export: emscripten_stack_get_base");
   assert(typeof wasmExports["requestSaveState"] != "undefined", "missing Wasm export: requestSaveState");
   assert(typeof wasmExports["isStateReady"] != "undefined", "missing Wasm export: isStateReady");
   assert(typeof wasmExports["isStateSuccess"] != "undefined", "missing Wasm export: isStateSuccess");
   assert(typeof wasmExports["requestLoadState"] != "undefined", "missing Wasm export: requestLoadState");
   assert(typeof wasmExports["diagScheduledCount"] != "undefined", "missing Wasm export: diagScheduledCount");
   assert(typeof wasmExports["diagTimerCount"] != "undefined", "missing Wasm export: diagTimerCount");
+  assert(typeof wasmExports["diagDumpThreads"] != "undefined", "missing Wasm export: diagDumpThreads");
+  assert(typeof wasmExports["emscripten_stack_get_end"] != "undefined", "missing Wasm export: emscripten_stack_get_end");
+  assert(typeof wasmExports["emscripten_stack_get_base"] != "undefined", "missing Wasm export: emscripten_stack_get_base");
+  assert(typeof wasmExports["diagPutBitsTotal"] != "undefined", "missing Wasm export: diagPutBitsTotal");
+  assert(typeof wasmExports["diagPutBitsDirty"] != "undefined", "missing Wasm export: diagPutBitsDirty");
+  assert(typeof wasmExports["diagPutBitsMaxW"] != "undefined", "missing Wasm export: diagPutBitsMaxW");
+  assert(typeof wasmExports["diagPutBitsMaxH"] != "undefined", "missing Wasm export: diagPutBitsMaxH");
   assert(typeof wasmExports["__main_argc_argv"] != "undefined", "missing Wasm export: __main_argc_argv");
   assert(typeof wasmExports["strerror"] != "undefined", "missing Wasm export: strerror");
   assert(typeof wasmExports["fflush"] != "undefined", "missing Wasm export: fflush");
@@ -10935,6 +11059,7 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports["htons"] != "undefined", "missing Wasm export: htons");
   assert(typeof wasmExports["emscripten_builtin_memalign"] != "undefined", "missing Wasm export: emscripten_builtin_memalign");
   assert(typeof wasmExports["ntohs"] != "undefined", "missing Wasm export: ntohs");
+  assert(typeof wasmExports["_emscripten_timeout"] != "undefined", "missing Wasm export: _emscripten_timeout");
   assert(typeof wasmExports["__trap"] != "undefined", "missing Wasm export: __trap");
   assert(typeof wasmExports["emscripten_stack_init"] != "undefined", "missing Wasm export: emscripten_stack_init");
   assert(typeof wasmExports["emscripten_stack_get_free"] != "undefined", "missing Wasm export: emscripten_stack_get_free");
@@ -10948,14 +11073,19 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports["memory"] != "undefined", "missing Wasm export: memory");
   assert(typeof wasmExports["__indirect_function_table"] != "undefined", "missing Wasm export: __indirect_function_table");
   assert(typeof wasmExports["__cpp_exception"] != "undefined", "missing Wasm export: __cpp_exception");
-  _emscripten_stack_get_end = wasmExports["emscripten_stack_get_end"];
-  _emscripten_stack_get_base = wasmExports["emscripten_stack_get_base"];
   _requestSaveState = Module["_requestSaveState"] = createExportWrapper("requestSaveState", 0);
   _isStateReady = Module["_isStateReady"] = createExportWrapper("isStateReady", 0);
   _isStateSuccess = Module["_isStateSuccess"] = createExportWrapper("isStateSuccess", 0);
   _requestLoadState = Module["_requestLoadState"] = createExportWrapper("requestLoadState", 0);
   _diagScheduledCount = Module["_diagScheduledCount"] = createExportWrapper("diagScheduledCount", 0);
   _diagTimerCount = Module["_diagTimerCount"] = createExportWrapper("diagTimerCount", 0);
+  _diagDumpThreads = Module["_diagDumpThreads"] = createExportWrapper("diagDumpThreads", 0);
+  _emscripten_stack_get_end = wasmExports["emscripten_stack_get_end"];
+  _emscripten_stack_get_base = wasmExports["emscripten_stack_get_base"];
+  _diagPutBitsTotal = Module["_diagPutBitsTotal"] = createExportWrapper("diagPutBitsTotal", 0);
+  _diagPutBitsDirty = Module["_diagPutBitsDirty"] = createExportWrapper("diagPutBitsDirty", 0);
+  _diagPutBitsMaxW = Module["_diagPutBitsMaxW"] = createExportWrapper("diagPutBitsMaxW", 0);
+  _diagPutBitsMaxH = Module["_diagPutBitsMaxH"] = createExportWrapper("diagPutBitsMaxH", 0);
   _main = Module["_main"] = createExportWrapper("__main_argc_argv", 2);
   _strerror = createExportWrapper("strerror", 1);
   _fflush = createExportWrapper("fflush", 1);
@@ -10964,6 +11094,7 @@ function assignWasmExports(wasmExports) {
   _htons = createExportWrapper("htons", 1);
   _emscripten_builtin_memalign = createExportWrapper("emscripten_builtin_memalign", 2);
   _ntohs = createExportWrapper("ntohs", 1);
+  __emscripten_timeout = createExportWrapper("_emscripten_timeout", 2);
   ___trap = wasmExports["__trap"];
   _emscripten_stack_init = wasmExports["emscripten_stack_init"];
   _emscripten_stack_get_free = wasmExports["emscripten_stack_get_free"];
@@ -10981,6 +11112,7 @@ function assignWasmExports(wasmExports) {
 
 var wasmImports = {
   /** @export */ __assert_fail: ___assert_fail,
+  /** @export */ __call_sighandler: ___call_sighandler,
   /** @export */ __syscall__newselect: ___syscall__newselect,
   /** @export */ __syscall_accept4: ___syscall_accept4,
   /** @export */ __syscall_bind: ___syscall_bind,
@@ -11011,9 +11143,11 @@ var wasmImports = {
   /** @export */ __throw_exception_with_stack_trace: ___throw_exception_with_stack_trace,
   /** @export */ _abort_js: __abort_js,
   /** @export */ _emscripten_lookup_name: __emscripten_lookup_name,
+  /** @export */ _emscripten_runtime_keepalive_clear: __emscripten_runtime_keepalive_clear,
   /** @export */ _mktime_js: __mktime_js,
   /** @export */ _mmap_js: __mmap_js,
   /** @export */ _munmap_js: __munmap_js,
+  /** @export */ _setitimer_js: __setitimer_js,
   /** @export */ _tzset_js: __tzset_js,
   /** @export */ clock_time_get: _clock_time_get,
   /** @export */ eglBindAPI: _eglBindAPI,
