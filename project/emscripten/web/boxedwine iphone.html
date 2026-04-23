@@ -196,6 +196,81 @@
         <progress value="0" max="100" id="progress"></progress>
       </div>
     </div>
+
+    <!-- Floating toolbar (copied from boxedwine.html) -->
+    <div id="controlsPanel" class="controls-panel collapsed">
+      <div class="controls-container">
+        <button id="startbtn" class="ios-button" style="display: none" onclick="start()">Start</button>
+        <button id="uploadbtnTB" class="ios-button" style="display: none"
+          onclick="document.getElementById('upload').click()">Add File(s)</button>
+        <button id="downloadbtnTB" class="ios-button" style="display: none" onclick="buildGetFilesModal();">Get File(s)</button>
+        <button id="savestatebtnTB" class="ios-button" style="display: none" onclick="saveState();">Save State</button>
+        <button id="loadstatebtnTB" class="ios-button" style="display: none"
+          onclick="document.getElementById('loadstatefile').click();">Load State</button>
+        <input style="display: none" id="loadstatefile" type="file" accept=".boxedstate"
+          onchange="loadState(event.target.files[0]);" />
+        <button id="persistpcbtnTB" class="ios-button" style="display: none" onclick="persistPcStorage();"
+          title="Save current PC state to browser storage. It will auto-load next time you open this page.">Persist PC Storage</button>
+        <button id="clearpersistbtnTB" class="ios-button" style="display: none"
+          onclick="clearPersistedPcStorage();" title="Clear the auto-loaded persisted PC state.">Clear Persisted</button>
+        <a style="display: none" id="modalLink" href="#openModal">Open</a>
+        <a style="display: none" id="modalLinkExe" href="#openModalExe">Open</a>
+
+        <div class="checkbox-group">
+          <label class="ios-checkbox-label">
+            <input type="checkbox" id="pointerLock" checked> Lock/hide mouse pointer
+          </label>
+          <input type="checkbox" id="disableMouseTracking" style="display:none">
+          <label class="ios-checkbox-label">
+            <input type="checkbox" id="showFPS" checked> Show FPS
+          </label>
+          <label class="ios-checkbox-label">
+            <input type="checkbox" id="showConsoleToolbar" onclick="(function(){var t=document.getElementById('toggleLog');if(t){t.checked=this.checked;t.dispatchEvent(new Event('change'));}}).call(this)" checked> Show console
+          </label>
+          <label class="ios-checkbox-label">
+            <input type="checkbox" id="resize"> Resize canvas
+          </label>
+          <input type="button" class="ios-button" style="margin-top: 10px;" value="Fullscreen"
+            onclick="Module.requestFullscreen(document.getElementById('pointerLock').checked, document.getElementById('resize').checked)">
+        </div>
+      </div>
+    </div>
+    <button id="controlsToggleBtn" class="controls-toggle-btn" onclick="toggleControls()" style="background-color: rgba(0, 0, 0, 0.6)">☰</button>
+    <button id="installDoneBtn" class="ios-button"
+            style="display: none; position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 9998; padding: 16px 32px; font-size: 18px; font-weight: 600; background: #2d7ef7; color: #fff; border: none; border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,0.4); cursor: pointer; width: auto;"
+            onclick="persistPcStorage()"
+            title="Saves the current emulator state to browser storage so it auto-loads next time.">
+      Press this when game installation is done
+    </button>
+
+    <script>
+      function toggleControls() {
+        var panel = document.getElementById('controlsPanel');
+        var btn = document.getElementById('controlsToggleBtn');
+        if (panel.classList.contains('collapsed')) {
+          panel.classList.remove('collapsed');
+          btn.innerHTML = '↑';
+          btn.style.backgroundColor = '#000000';
+        } else {
+          panel.classList.add('collapsed');
+          btn.innerHTML = '☰';
+          btn.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+        }
+      }
+      document.addEventListener('DOMContentLoaded', () => {
+        var startBtn = document.getElementById('startbtn');
+        if (startBtn) {
+          startBtn.addEventListener('click', () => {
+            var panel = document.getElementById('controlsPanel');
+            var btn = document.getElementById('controlsToggleBtn');
+            panel.classList.add('collapsed');
+            btn.innerHTML = '☰';
+            btn.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+          });
+        }
+      });
+    </script>
+
     <div>
       <div id="dropzone">
         <div class="emscripten_border">
@@ -205,6 +280,12 @@
             tabindex="0"
             oncontextmenu="event.preventDefault()"
           ></canvas>
+        </div>
+        <!-- FPS overlay -->
+        <div id="fpsOverlay"
+            style="position:fixed;top:8px;right:8px;padding:4px 8px;font:bold 14px/1.2 monospace;color:#0f0;background:rgba(0,0,0,0.65);border:1px solid #0f0;border-radius:4px;pointer-events:none;z-index:100;display:none">
+          <div id="fpsLine">FPS: --</div>
+          <div id="mipsLine" style="font-size:11px;color:#8f8">MIPS: --</div>
         </div>
 
         <div id="logToggleWrap">

@@ -84,18 +84,21 @@
         // via ?dmt=true URL param) reverts to full mouse tracking when
         // UNCHECKED. Default is checked-behavior (click-only) — see below.
         (function(){
-            var isSynthetic = false;
+            // Exposed globally so code OUTSIDE this closure (e.g. the
+            // post-state-restore nudge) can also fire a mousemove that
+            // bypasses the gate.
+            window.__boxedwineSyntheticMouse = false;
             var gate = function(e){
-                if (isSynthetic) return;                      // let our own synthesized mousemove through
+                if (window.__boxedwineSyntheticMouse) return;  // let synthesized mousemove through
                 e.stopImmediatePropagation();                  // drop every other mousemove
             };
             var prepareClick = function(e){
                 // Before the click fires, fire a mousemove at the click
                 // position so the guest cursor is at (clientX,clientY) when
-                // the click event lands. Use isSynthetic flag to bypass gate.
+                // the click event lands. Use the synthetic flag to bypass.
                 var c = document.getElementById('canvas');
                 if (!c) return;
-                isSynthetic = true;
+                window.__boxedwineSyntheticMouse = true;
                 try {
                     c.dispatchEvent(new MouseEvent('mousemove', {
                         clientX: e.clientX, clientY: e.clientY,
@@ -104,7 +107,7 @@
                         bubbles: true, cancelable: true, view: window
                     }));
                 } finally {
-                    isSynthetic = false;
+                    window.__boxedwineSyntheticMouse = false;
                 }
             };
             var installGate = function(){
@@ -1299,6 +1302,41 @@ function loadState(file) {
     reader.readAsArrayBuffer(file);
 }
 
+// After a state restore, Diablo's render threads often stay parked on X11
+// socket waits (they were idle when the state was captured). The game CPU
+// keeps running but no new frames reach the canvas. Firing a cluster of
+// input events wakes the blocked threads via wine's normal event path so
+// the menu / scene repaints. Called automatically after loadStateFromBytes.
+function nudgeGuestAfterRestore() {
+    var c = document.getElementById('canvas');
+    if (!c) return;
+    var r = c.getBoundingClientRect();
+    var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    // Mouse nudge (bypasses the click-only gate).
+    window.__boxedwineSyntheticMouse = true;
+    try {
+        c.dispatchEvent(new MouseEvent('mousemove', {
+            clientX: cx, clientY: cy,
+            bubbles:true, cancelable:true, view:window
+        }));
+    } finally {
+        window.__boxedwineSyntheticMouse = false;
+    }
+    // Diablo's menu stays idle until an input it recognizes arrives. A
+    // mousemove alone isn't enough; the menu wants arrow keys (or enter).
+    // Send ArrowDown then immediately ArrowUp — net selection change = 0,
+    // only one redraw cycle, no flicker.
+    var fireKey = function(key, keyCode){
+        ['keydown','keyup'].forEach(function(t){
+            var ev = new KeyboardEvent(t, {key:key, code:key, keyCode:keyCode, which:keyCode, bubbles:true, cancelable:true});
+            c.dispatchEvent(ev);
+            document.dispatchEvent(ev);
+        });
+    };
+    fireKey('ArrowDown', 40);
+    fireKey('ArrowUp', 38);
+}
+
 // Load state bytes directly (not from a user-picked file). Used for the
 // auto-loaded diablo_save.boxedstate so the user lands straight in gameplay.
 function loadStateFromBytes(bytes) {
@@ -1316,6 +1354,11 @@ function loadStateFromBytes(bytes) {
             window.__boxedwineLoadOffset = 0;
             if (Module._isStateSuccess()) {
                 console.log("[autoload] saved state applied — resuming");
+                // A single gentle nudge is enough to wake the parked X11
+                // render thread and force the guest to repaint the scene
+                // into the now-fresh WebGL textures. More than one causes
+                // visible flicker because each nudge triggers a redraw.
+                setTimeout(function(){ try { nudgeGuestAfterRestore(); } catch(e){} }, 400);
             } else {
                 console.warn("[autoload] saved state failed to apply");
             }
@@ -1331,15 +1374,34 @@ function loadStateFromBytes(bytes) {
 // Auto-fetch + auto-load a pre-baked save state so first-load users don't have
 // to sit through Diablo's boot sequence. Triggered once the emulator has been
 // running long enough to accept a state load (the save image is a full memory
-// snapshot so boxedwine must already be up). Opt IN with ?autoload=1 — default
-// is disabled so first-time visitors see a normal Diablo boot.
+// snapshot so boxedwine must already be up).
+//
+//   ?autoload=1            → load diablo_save.boxedstate (in-gameplay)
+//   ?autoload=menu         → load diablo_menu_save.boxedstate (at main menu;
+//                            useful for reproducing menu-asset bugs)
+//   ?autoload=<filename>   → load any file next to boxedwine.html
+//   default                → normal Diablo boot (no restore)
 (function(){
-    if ((window.location.search||'').indexOf('autoload=1') === -1) return;
+    var search = window.location.search || '';
+    var m = /[?&]autoload=([^&]+)/i.exec(search);
+    if (!m) return;
+    var arg = decodeURIComponent(m[1]).toLowerCase();
+    if (arg === '0' || arg === 'false' || arg === 'no') return;
+    var stateFile;
+    if (arg === '1' || arg === 'true' || arg === 'yes' || arg === 'default' || arg === 'save') {
+        stateFile = 'diablo_save.boxedstate';
+    } else if (arg === 'menu') {
+        stateFile = 'diablo_menu_save.boxedstate';
+    } else if (/\.boxedstate$/i.test(arg)) {
+        stateFile = arg;
+    } else {
+        stateFile = 'diablo_save.boxedstate';
+    }
     if (typeof fetch !== 'function') return;
     var savedBytes = null;
     var fetched = false;
-    // Fetch in background as soon as the page loads
-    fetch('diablo_save.boxedstate?_=' + Date.now(), {cache: 'no-store'})
+    console.log('[autoload] fetching ' + stateFile);
+    fetch(stateFile + '?_=' + Date.now(), {cache: 'no-store'})
         .then(function(r){
             if (!r.ok) throw new Error('no save file (' + r.status + ')');
             return r.arrayBuffer();
@@ -1347,11 +1409,11 @@ function loadStateFromBytes(bytes) {
         .then(function(buf){
             savedBytes = new Uint8Array(buf);
             fetched = true;
-            console.log('[autoload] fetched diablo_save.boxedstate:', savedBytes.length, 'bytes');
+            console.log('[autoload] fetched ' + stateFile + ':', savedBytes.length, 'bytes');
         })
         .catch(function(e){
             fetched = true; // stop polling
-            console.log('[autoload] no saved state available:', e.message);
+            console.log('[autoload] ' + stateFile + ' not available:', e.message);
         });
 
     // Poll for (a) Module ready and (b) fetch complete, then apply

@@ -26,6 +26,16 @@
         overscroll-behavior: none;
         touch-action: none;
       }
+      /* Respect iPhone notch / dynamic island / home indicator. Without
+         these pads the top slice of the canvas gets drawn *under* the
+         status bar and the user sees heavy cropping at the top. */
+      body {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+        box-sizing: border-box;
+      }
       /* Allow form controls to still receive taps / scroll as needed. */
       input, textarea, button, label, select, .controls-panel, .controls-toggle-btn {
         touch-action: manipulation;
@@ -60,7 +70,7 @@
         </div>
     </div>
     <div>
-        <div id="controlsPanel" class="controls-panel">
+        <div id="controlsPanel" class="controls-panel collapsed">
             <div class="controls-container">
                 <button id="startbtn" class="ios-button" style="display: none" onclick="start()">Start</button>
                 <button id="uploadbtn" class="ios-button" style="display: none"
@@ -107,7 +117,7 @@
                 </div>
             </div>
         </div>
-        <button id="controlsToggleBtn" class="controls-toggle-btn" onclick="toggleControls()">↑</button>
+        <button id="controlsToggleBtn" class="controls-toggle-btn" onclick="toggleControls()" style="background-color: rgba(0, 0, 0, 0.6)">☰</button>
 
         <script>
             function toggleControls() {
