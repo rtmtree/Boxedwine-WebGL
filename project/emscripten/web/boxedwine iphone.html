@@ -1,158 +1,332 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en-us">
-
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
     <title>BoxedWine</title>
-    <meta name="description" content="boxedwine emulator">
-    <meta name="keywords" content="emulator,wine,windows,x86,PC,emscripten,web assembly,wasm,boxedwine">
-    <meta name="author" content="James Bryant, Kevin O'Dwyer">
-    <link rel="stylesheet" type="text/css" href="boxedwine.css?v=2">
-</head>
+    <meta name="description" content="boxedwine emulator" />
+    <meta
+      name="keywords"
+      content="emulator,wine,windows,x86,PC,emscripten,web assembly,wasm,boxedwine"
+    />
+    <meta name="author" content="James Bryant, Kevin O'Dwyer" />
+    <link rel="stylesheet" type="text/css" href="boxedwine.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        width: 100%;
+        background: #000;
+        overflow: hidden; /* prevent both horizontal and vertical scroll */
+        position: fixed;
+        inset: 0;
+        overscroll-behavior: none;
+        touch-action: none;
+      }
+      /* Center dropzone and make the canvas container a responsive square */
+      #dropzone {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start; /* top */
+        align-items: center; /* center horizontally */
+        min-height: calc(100vh - var(--controller-h, 0px));
+        padding-top: 8px;
+        overflow: hidden;
+        width: 100%;
+      }
+      .emscripten_border {
+        /* Square sized by the smaller of viewport width and usable height (vh - controller) */
+        width: min(100vw, calc(100vh - var(--controller-h, 0px)));
+        height: min(100vw, calc(100vh - var(--controller-h, 0px)));
+        margin: 0 auto;
+      }
+      #canvas {
+        /* width: 800px;
+        height: 600px; */
+        width: 100%;
+        height: 100%;
+        display: block;
+        image-rendering: pixelated;
+      }
 
-<body style="margin: 0; padding: 0; background-color: #000; width: 100%; height: 100%; overflow-x: hidden;">
-    <div id="spinner"
-        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; color: white; font-family: system-ui, -apple-system, sans-serif;">
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
-            <div style="width: 40px; height: 40px; position: relative;">
-                <div
-                    style="width: 40px; height: 40px; border: 3px solid rgba(255, 255, 255, 0.2); border-top-color: rgba(255, 255, 255, 0.9); border-radius: 50%; animation: iosSpin 0.8s linear infinite;">
-                </div>
-            </div>
-            <style>
-                @keyframes iosSpin {
-                    from {
-                        transform: rotate(0deg);
-                    }
+      /* For iPhone (DPR = 3) — shrink the CSS logical size so runtime sets backing = 800 * 2
+        i.e. cssWidth * actualDPR = desiredBacking => cssWidth = desiredBacking / actualDPR
+        desiredBacking = 800 * 2 (emulate iPad DPR=2)
+        so cssWidth = (800*2)/3 => scale = 2/3 */
+      /* @media (-webkit-device-pixel-ratio: 3), (resolution: 3dppx) {
+        #canvas {
+        width: 100%;
+        height: 100%;
+          image-rendering: pixelated;
+        }
+      } */
 
-                    to {
-                        transform: rotate(360deg);
-                    }
-                }
-            </style>
-            <div id="status" style="margin-top: 20px; font-weight: 500;">Downloading...</div>
-            <div style="margin-top: 10px; width: 200px;">
-                <progress value="0" max="100" id="progress" style="width: 100%;"></progress>
-            </div>
-        </div>
+      /* Optional: for DPR >= 3 (future proof)
+      @media (min-resolution: 3dppx) {
+        #canvas {
+          width: calc(800px * 2 / 3);
+          height: calc(600px * 2 / 3);
+        }
+      }
+      /* Mobile: show top-left crop of the desktop/iPad canvas.
+         Keep the canvas at the laptop/iPad logical size and clip it to the
+         viewport so mobile displays the top-left portion. */
+      /* @media (max-width: 768px) {
+        .emscripten_border {
+          width: 100vw;
+          height: calc(100vh - var(--controller-h, 0px));
+          overflow: hidden;
+          position: relative;
+        }
+        #canvas {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 800px;
+          height: 600px; 
+          image-rendering: pixelated;
+        }
+      }  */
+      /* Log toggle */
+      #logToggleWrap {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        color: #fff;
+        margin: 8px auto 4px;
+        width: min(100vw, calc(100vh - var(--controller-h, 0px)));
+      }
+      #output {
+        width: 100%;
+        max-width: min(100vw, calc(100vh - var(--controller-h, 0px)));
+        margin: 0 auto;
+      }
+      /* Prevent text selection on touch devices (iPhone) while keeping form fields selectable */
+      :root,
+      html,
+      body,
+      #dropzone,
+      .emscripten_border,
+      #logToggleWrap,
+      #logToggleWrap label,
+      .emscripten {
+        -webkit-user-select: none; /* Safari, iOS */
+        -ms-user-select: none; /* IE/Edge */
+        user-select: none; /* standard */
+        -webkit-touch-callout: none; /* disable callout menu on iOS */
+      }
+      /* Allow selection inside form controls (inputs, textareas, file pickers) */
+      input,
+      textarea,
+      input[type="text"],
+      input[type="file"],
+      input[type="search"],
+      input[type="password"] {
+        -webkit-user-select: text;
+        -ms-user-select: text;
+        user-select: text;
+        -webkit-touch-callout: default;
+      }
+      /* Startup loading overlay (centered, iPhone/iPad) */
+      #startupOverlay {
+        position: fixed;
+        inset: 0;
+        display: flex;             /* visible by default so it shows from the beginning */
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 9999;
+        -webkit-backdrop-filter: blur(2px);
+        backdrop-filter: blur(2px);
+      }
+      #startupOverlay .card {
+        background: rgba(20, 20, 20, 0.92);
+        color: #fff;
+        padding: 16px 18px;
+        border-radius: 12px;
+        min-width: 160px;
+        max-width: 80vw;
+        text-align: center;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+      }
+      #startupOverlay .loader {
+        width: 28px;
+        height: 28px;
+        border: 3px solid rgba(255, 255, 255, 0.25);
+        border-top-color: #fff;
+        border-radius: 50%;
+        margin: 4px auto 10px;
+        animation: spin 1s linear infinite;
+      }
+      #startupOverlay .label {
+        font-size: 14px;
+        letter-spacing: 0.2px;
+        opacity: 0.9;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Visible from the very beginning; hidden once the runtime is ready -->
+    <div id="startupOverlay">
+      <div class="card">
+        <div class="loader"></div>
+        <div class="label">Preparing...</div>
+      </div>
+    </div>
+    <div id="loading" style="display: none">
+      <figure id="spinner" style="overflow: visible">
+        <div
+          class="spinner"
+          style="margin-top: 0.5em; margin-left: auto; margin-right: auto"
+        ></div>
+      </figure>
+      <div class="emscripten" id="status">Downloading...</div>
+      <div class="emscripten">
+        <progress value="0" max="100" id="progress"></progress>
+      </div>
     </div>
     <div>
-        <div id="controlsPanel" class="controls-panel">
-            <div class="controls-container">
-                <button id="startbtn" class="ios-button" style="display: none" onclick="start()">Start</button>
-                <button id="uploadbtn" class="ios-button" style="display: none"
-                    onclick="document.getElementById('upload').click()">Add File(s)</button>
-                <input style="display: none" id="upload" name="upload"
-                    onclick="document.getElementById('uploadbtn').click();"
-                    onchange="startWithFiles(event.target.files);" type="file" multiple />
-                <button id="downloadbtn" class="ios-button" style="display: none" onclick="buildGetFilesModal();">Get
-                    File(s)</button>
-                <button id="savestatebtn" class="ios-button" style="display: none" onclick="saveState();">Save
-                    State</button>
-                <button id="loadstatebtn" class="ios-button" style="display: none"
-                    onclick="document.getElementById('loadstatefile').click();">Load State</button>
-                <input style="display: none" id="loadstatefile" type="file" accept=".boxedstate"
-                    onchange="loadState(event.target.files[0]);" />
-                <button id="persistpcbtn" class="ios-button" style="display: none" onclick="persistPcStorage();"
-                    title="Save current PC state to browser storage. It will auto-load next time you open this page.">Persist
-                    PC Storage</button>
-                <button id="clearpersistbtn" class="ios-button" style="display: none"
-                    onclick="clearPersistedPcStorage();" title="Clear the auto-loaded persisted PC state.">Clear
-                    Persisted</button>
-                <a style="display: none" id="modalLink" href="#openModal">Open</a>
-                <a style="display: none" id="modalLinkExe" href="#openModalExe">Open</a>
-
-                <div class="checkbox-group">
-                    <label class="ios-checkbox-label" id="sound-checkbox" style="display: none">
-                        <input type="checkbox" id="soundToggle" onclick="toggleSound();" /> Enable Sound
-                    </label>
-                    <label class="ios-checkbox-label">
-                        <input type="checkbox" id="pointerLock" checked> Lock/hide mouse pointer
-                    </label>
-                    <input type="checkbox" id="disableMouseTracking" style="display:none">
-                    <label class="ios-checkbox-label">
-                        <input type="checkbox" id="showFPS" checked> Show FPS
-                    </label>
-                    <label class="ios-checkbox-label">
-                        <input type="checkbox" id="showConsole" onclick="toggleConsole();" checked> Show console
-                    </label>
-                    <label class="ios-checkbox-label">
-                        <input type="checkbox" id="resize"> Resize canvas
-                    </label>
-                    <input type="button" class="ios-button" style="margin-top: 10px;" value="Fullscreen"
-                        onclick="Module.requestFullscreen(document.getElementById('pointerLock').checked, document.getElementById('resize').checked)">
-                </div>
-            </div>
+      <div id="dropzone">
+        <div class="emscripten_border">
+          <canvas
+            class="emscripten"
+            id="canvas"
+            tabindex="0"
+            oncontextmenu="event.preventDefault()"
+          ></canvas>
         </div>
-        <button id="controlsToggleBtn" class="controls-toggle-btn" onclick="toggleControls()">↑</button>
 
-        <script>
-            function toggleControls() {
-                var panel = document.getElementById('controlsPanel');
-                var btn = document.getElementById('controlsToggleBtn');
-                if (panel.classList.contains('collapsed')) {
-                    panel.classList.remove('collapsed');
-                    btn.innerHTML = '↑';
-                    btn.style.backgroundColor = '#000000';
-                } else {
-                    panel.classList.add('collapsed');
-                    btn.innerHTML = '☰';
-                    btn.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
-                }
-            }
-            document.addEventListener('DOMContentLoaded', () => {
-                var startBtn = document.getElementById('startbtn');
-                if (startBtn) {
-                    startBtn.addEventListener('click', () => {
-                        var panel = document.getElementById('controlsPanel');
-                        var btn = document.getElementById('controlsToggleBtn');
-                        panel.classList.add('collapsed');
-                        btn.innerHTML = '☰';
-                        btn.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
-                    });
-                }
-            });
-        </script>
-        <div id="dropzone" style="position:relative">
-            <div class="emscripten_border">
-                <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
-            </div>
-            <div id="fpsOverlay"
-                style="position:absolute;top:4px;right:8px;padding:4px 8px;font:bold 14px/1.2 monospace;color:#0f0;background:rgba(0,0,0,0.65);border:1px solid #0f0;border-radius:4px;pointer-events:none;z-index:100;display:none">
-                <div id="fpsLine">FPS: --</div>
-                <div id="mipsLine" style="font-size:11px;color:#8f8">MIPS: --</div>
-            </div>
+        <div id="logToggleWrap">
+          <label style="color: #fff">
+            <input
+              type="checkbox"
+              id="zoomToggle"
+              onchange="toggleZoom(this)"
+            />
+            Original Aspect Ratio
+          </label>
+          <div style="display: none">
+            <label
+              ><input
+                type="checkbox"
+                id="soundToggle"
+                onclick="toggleSound();"
+              />
+              Enable Sound
+            </label>
+          </div>
+          <label><input type="checkbox" id="toggleLog" /> Show log</label>
         </div>
+        <textarea
+          class="emscripten"
+          id="output"
+          rows="8"
+          style="display: none"
+        ></textarea>
+      </div>
+
+      <div id="openModal" class="modalDialog" style="display: none">
         <div>
-            <textarea class="emscripten" id="output" rows="8" style="display: none"></textarea>
+          <a
+            href="#close"
+            title="Close"
+            class="close"
+            onclick="closeGetFilesModal();"
+          >
+            <!-- x -->
+          </a>
+          <div>
+            <h3>Get File(s)</h3>
+            <input id="selectedItem" type="text" size="50" readonly />
+            <button onclick="extract();">Get</button>
+          </div>
+          <div id="tree" class="scroll-style"></div>
+          <!-- <div>
+                  <h3 id="loadStatus">Loading...</h3>
+              </div> -->
         </div>
-        <div id="openModal" class="modalDialog">
-            <div> <a href="#close" title="Close" class="close" onclick="closeGetFilesModal();">X</a>
-                <div>
-                    <h3>Get File(s)</h3>
-                    <input id="selectedItem" type="text" size="50" readonly>
-                    <button onclick="extract();">Get</button>
-                </div>
-                <div id="tree" class="scroll-style">
-                </div>
-                <div>
-                    <h3 id="loadStatus">Loading...</h3>
-                </div>
-            </div>
+      </div>
+      <div class="emscripten" style="display: none">
+        <!-- <div class="emscripten"> -->
+        <!-- <button id="startbtn" style="display: none" onclick="start()">Start</button> -->
+        <button
+          id="uploadbtn"
+          style="display: none"
+          onclick="document.getElementById('upload').click()"
+        >
+          Add File(s)
+        </button>
+        <input
+          style="display: none"
+          id="upload"
+          name="upload"
+          onclick="document.getElementById('uploadbtn').click();"
+          onchange="startWithFiles(event.target.files);"
+          type="file"
+          multiple
+        />
+        <button
+          id="downloadbtn"
+          style="display: none"
+          onclick="buildGetFilesModal();"
+        >
+          Get File(s)
+        </button>
+        <a style="display: none" id="modalLink" href="#openModal">Open</a>
+        <a style="display: none" id="modalLinkExe" href="#openModalExe">Open</a>
+
+        <span id="sound-checkbox" style="display: none">
+          <input
+            type="checkbox"
+            id="soundToggle"
+            onclick="toggleSound();"
+          />Enable Sound
+        </span>
+        <input
+          type="checkbox"
+          id="pointerLock"
+          checked
+          style="display: none"
+        />Lock/hide mouse pointer
+        <input
+          type="checkbox"
+          id="showConsole"
+          onclick="toggleConsole();"
+          style="display: none"
+        />Show console
+        <input type="checkbox" id="resize" style="display: none" />Resize canvas
+        <input
+          type="button"
+          value="Fullscreen"
+          style="display: none"
+          onclick="Module.requestFullscreen(document.getElementById('pointerLock').checked, document.getElementById('resize').checked)"
+        />
+      </div>
+      <div id="openModalExe" class="modalDialog" style="display: none">
+        <div>
+          <a id="openModalExeClick" href="#close" title="Close" class="close"
+            >X</a
+          >
+          <div>
+            <h3>Execute</h3>
+            <div id="message"></div>
+            <div id="items" class="scroll-style"></div>
+          </div>
         </div>
-        <div id="openModalExe" class="modalDialog">
-            <div> <a id="openModalExeClick" href="#close" title="Close" class="close">X</a>
-                <div>
-                    <h3>Execute</h3>
-                    <div id="message"></div>
-                    <div id="items" class="scroll-style"></div>
-                </div>
-            </div>
-        </div>
-        <hr>
+      </div>
     </div>
+
     <script>
       function toggleZoom(checkbox) {
         try {
@@ -417,10 +591,10 @@
       })();
     </script>
 
-    
     <script src="boxedwine-shell.js"></script>
     <script async type="text/javascript" src="boxedwine.js"></script>
-<script></script>
+
+    <script></script>
     <script>
       function hideStartupOverlay() {
         try {
@@ -758,6 +932,5 @@
         });
       }
     </script>
-</body>
-
+  </body>
 </html>

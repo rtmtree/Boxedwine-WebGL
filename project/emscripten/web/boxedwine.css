@@ -1,9 +1,59 @@
-.emscripten { padding-right: 0; margin-left: auto; margin-right: auto; display: block; }
-textarea.emscripten { font-family: monospace; width: 100%; color:white; background-color:black;}
-div.emscripten { text-align: center; }
-div.emscripten_border { border: 1px solid black; }
+body,
+html {
+    margin: 0;
+    padding: 0;
+    background-color: #000;
+    width: 100%;
+    height: 100%;
+    overflow-x: hidden;
+}
+
+.emscripten {
+    padding-right: 0;
+    margin-left: auto;
+    margin-right: auto;
+    display: block;
+}
+
+textarea.emscripten {
+    font-family: monospace;
+    width: 100%;
+    color: white;
+    background-color: black;
+    box-sizing: border-box;
+}
+
+div.emscripten {
+    text-align: center;
+}
+
+div.emscripten_border {
+    width: min(100vw, calc(100vh - var(--controller-h, 0px)));
+    height: min(100vw, calc(100vh - var(--controller-h, 0px)));
+    margin: 0 auto;
+    border: none;
+}
+
 /* the canvas *must not* have any border or padding, or mouse coords will be wrong */
-canvas.emscripten { border: 0px none; }
+canvas.emscripten {
+    border: 0px none;
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+    image-rendering: auto;
+}
+
+#dropzone {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    min-height: calc(100vh - var(--controller-h, 0px));
+    padding-top: 8px;
+    overflow: hidden;
+    width: 100%;
+}
+
 .spinner {
     height: 50px;
     width: 50px;
@@ -12,29 +62,54 @@ canvas.emscripten { border: 0px none; }
     -moz-animation: rotation .8s linear infinite;
     -o-animation: rotation .8s linear infinite;
     animation: rotation 0.8s linear infinite;
-    border-left: 10px solid rgb(0,150,240);
-    border-right: 10px solid rgb(0,150,240);
-    border-bottom: 10px solid rgb(0,150,240);
-    border-top: 10px solid rgb(100,0,200);
+    border-left: 10px solid rgb(0, 150, 240);
+    border-right: 10px solid rgb(0, 150, 240);
+    border-bottom: 10px solid rgb(0, 150, 240);
+    border-top: 10px solid rgb(100, 0, 200);
     border-radius: 100%;
-    background-color: rgb(200,100,250);
+    background-color: rgb(200, 100, 250);
 }
+
 @-webkit-keyframes rotation {
-    from {-webkit-transform: rotate(0deg);}
-    to {-webkit-transform: rotate(360deg);}
+    from {
+        -webkit-transform: rotate(0deg);
+    }
+
+    to {
+        -webkit-transform: rotate(360deg);
+    }
 }
+
 @-moz-keyframes rotation {
-    from {-moz-transform: rotate(0deg);}
-    to {-moz-transform: rotate(360deg);}
+    from {
+        -moz-transform: rotate(0deg);
+    }
+
+    to {
+        -moz-transform: rotate(360deg);
+    }
 }
+
 @-o-keyframes rotation {
-    from {-o-transform: rotate(0deg);}
-    to {-o-transform: rotate(360deg);}
+    from {
+        -o-transform: rotate(0deg);
+    }
+
+    to {
+        -o-transform: rotate(360deg);
+    }
 }
+
 @keyframes rotation {
-    from {transform: rotate(0deg);}
-    to {transform: rotate(360deg);}
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
+
 .modalDialog {
     position: fixed;
     font-family: Arial, Helvetica, sans-serif;
@@ -42,19 +117,21 @@ canvas.emscripten { border: 0px none; }
     right: 0;
     bottom: 0;
     left: 0;
-    background: rgba(0,0,0,0.8);
-    z-index:99999;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 99999;
     opacity: 0;
     -webkit-transition: opacity 400ms ease-in;
     -moz-transition: opacity 400ms ease-in;
     transition: opacity 400ms ease-in;
     pointer-events: none;
 }
-.modalDialog:target{
+
+.modalDialog:target {
     opacity: 1;
     pointer-events: auto;
 }
-.modalDialog > div {
+
+.modalDialog>div {
     width: 400px;
     position: relative;
     margin: 10% auto;
@@ -62,7 +139,8 @@ canvas.emscripten { border: 0px none; }
     border-radius: 10px;
     background: #fff;
 }
-.close{
+
+.close {
     background: #606061;
     color: #ffffff;
     line-height: 25px;
@@ -77,11 +155,121 @@ canvas.emscripten { border: 0px none; }
     -webkit-box-shadow: 1px 1px 3px #000;
     box-shadow: 1px 1px 3px #000;
 }
-.close:hover{
+
+.close:hover {
     background: #00d9ff;
 }
-.scroll-style
-{
+
+.scroll-style {
     max-height: 250px;
     overflow-y: scroll;
+}
+
+/* App.tsx Pattern Settings */
+.controls-toggle-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 56px;
+    height: 56px;
+    border-radius: 28px;
+    background-color: #000000;
+    color: white;
+    border: 3px solid rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    z-index: 1001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+.controls-toggle-btn:active {
+    transform: scale(0.95);
+}
+
+.controls-panel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background-color: rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 1000;
+    padding: 20px;
+    padding-top: max(20px, env(safe-area-inset-top));
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    align-items: center;
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    max-height: 100vh;
+    overflow-y: auto;
+}
+
+.controls-panel.collapsed {
+    transform: translateY(-100%);
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: none;
+}
+
+.controls-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    justify-content: center;
+    width: 100%;
+    max-width: 400px;
+}
+
+.ios-button {
+    padding: 12px;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: white;
+    border: 3px solid rgba(255, 255, 255, 0.5);
+    border-radius: 50px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 500;
+    min-height: 44px;
+    width: 100%;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    transition: opacity 0.2s ease;
+    box-sizing: border-box;
+    font-family: system-ui, -apple-system, sans-serif;
+}
+
+.ios-button:active {
+    opacity: 0.7;
+}
+
+.checkbox-group {
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 20px;
+    padding: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.ios-checkbox-label {
+    display: block;
+    color: white;
+    font-family: system-ui, -apple-system, sans-serif;
+    margin-bottom: 12px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.ios-checkbox-label:last-child {
+    margin-bottom: 0;
 }
