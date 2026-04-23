@@ -27,9 +27,13 @@ div.emscripten {
     text-align: center;
 }
 
+/* Size the canvas container to fit 4:3 into the viewport — either fit-to-width
+   with letterboxing top/bottom, or fit-to-height with side bars, whichever
+   keeps the game fully visible without distortion. */
 div.emscripten_border {
-    width: min(100vw, calc(100vh - var(--controller-h, 0px)));
-    height: min(100vw, calc(100vh - var(--controller-h, 0px)));
+    /* Fit to width, fall back to height limit if width*3/4 overflows vertical */
+    width: min(100vw, calc((100vh - var(--controller-h, 0px)) * 4 / 3));
+    height: min(calc(100vw * 3 / 4), calc(100vh - var(--controller-h, 0px)));
     margin: 0 auto;
     border: none;
 }

@@ -1,32 +1,58 @@
         // Install mode (?install_mode=true) hides ALL chrome except the
         // canvas and a single "Press this when game installation is done"
-        // button at the bottom. Clicking it runs persistPcStorage() which
-        // snapshots the emulator filesystem into IndexedDB + triggers a zip
-        // download so the installed game survives the next reload.
+        // button placed RIGHT UNDER the canvas (not floating). Clicking it
+        // runs persistPcStorage() which snapshots the emulator filesystem
+        // into IndexedDB + triggers a zip download so the installed game
+        // survives the next reload.
         (function(){
             var search = (window.location.search || '').toLowerCase();
             var installMode = /[?&]install_mode=(true|1|yes)\b/.test(search);
             if (!installMode) return;
+            window.__installMode = true;   // FPS overlay sampler reads this to stay hidden
             var apply = function(){
                 var hide = function(el){ if (el) el.style.display = 'none'; };
-                var show = function(el, d){ if (el) el.style.display = d || 'block'; };
                 hide(document.getElementById('controlsPanel'));
                 hide(document.getElementById('controlsToggleBtn'));
                 hide(document.getElementById('fpsOverlay'));
                 hide(document.getElementById('output'));
-                // Keep the canvas visible.
+                // Uncheck Show FPS so the sampler doesn't bring it back.
+                var showFPS = document.getElementById('showFPS');
+                if (showFPS) showFPS.checked = false;
+                // Uncheck the iPhone log toggle if present.
+                var toggleLog = document.getElementById('toggleLog');
+                if (toggleLog) { toggleLog.checked = false; }
+                hide(document.getElementById('logToggleWrap'));
+
                 var btn = document.getElementById('installDoneBtn');
-                if (btn) {
-                    btn.style.display = 'block';
-                    // Wrap the click so we give visible feedback + disable
-                    // the button while persistPcStorage is running.
-                    var orig = btn.onclick;
-                    btn.onclick = function(){
-                        btn.disabled = true;
-                        btn.textContent = 'Saving PC storage…';
-                        try { persistPcStorage(); } catch(e) { console.error(e); }
-                    };
+                if (!btn) return;
+                // Move the button into document flow right after the canvas
+                // border so it renders directly under the canvas instead of
+                // floating at the bottom of the viewport.
+                var border = document.querySelector('.emscripten_border');
+                if (border && border.parentNode) {
+                    border.parentNode.insertBefore(btn, border.nextSibling);
                 }
+                // Replace fixed positioning with inline styles.
+                btn.setAttribute('style', [
+                    'display: block',
+                    'margin: 16px auto',
+                    'padding: 16px 32px',
+                    'font-size: 18px',
+                    'font-weight: 600',
+                    'background: #2d7ef7',
+                    'color: #fff',
+                    'border: none',
+                    'border-radius: 10px',
+                    'box-shadow: 0 4px 14px rgba(0,0,0,0.4)',
+                    'cursor: pointer',
+                    'width: auto',
+                    'max-width: 90vw'
+                ].join(';'));
+                btn.onclick = function(){
+                    btn.disabled = true;
+                    btn.textContent = 'Saving PC storage…';
+                    try { persistPcStorage(); } catch(e) { console.error(e); }
+                };
             };
             if (document.readyState !== 'loading') apply();
             else document.addEventListener('DOMContentLoaded', apply);
