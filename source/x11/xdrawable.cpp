@@ -105,16 +105,17 @@ int XDrawable::copyImageData(KThread* thread, const std::shared_ptr<XGC>& gc, U3
 		static thread_local U32 logCount = 0;
 		if (logCount < 30) {
 			logCount++;
-			// Sample first few pixels from source to verify content
+			// Sample pixels at various positions to see what Wine sent
 			KMemory* mem = thread->memory;
-			U32 px0 = mem->canRead(data, 4) ? mem->readd(data) : 0xdeadbeef;
-			U32 px1 = mem->canRead(data + 4, 4) ? mem->readd(data + 4) : 0xdeadbeef;
-			U32 px20 = mem->canRead(data + 80, 4) ? mem->readd(data + 80) : 0xdeadbeef;
+			U32 px0   = mem->canRead(data, 4) ? mem->readd(data) : 0xdeadbeef;
+			U32 px20  = mem->canRead(data + 80, 4) ? mem->readd(data + 80) : 0xdeadbeef;
 			U32 px100 = mem->canRead(data + 400, 4) ? mem->readd(data + 400) : 0xdeadbeef;
-			klog_fmt("[xdrw] putImage drawable=%x bpp=%d bpl=%u src=(%d,%d) dst=(%d,%d) %ux%u px[0]=%08x px[1]=%08x px[20]=%08x px[100]=%08x",
+			U32 px200 = mem->canRead(data + 800, 4) ? mem->readd(data + 800) : 0xdeadbeef;
+			U32 px300 = mem->canRead(data + 1200, 4) ? mem->readd(data + 1200) : 0xdeadbeef;
+			klog_fmt("[xdrw] putImage drawable=%x bpp=%d bpl=%u %ux%u src=(%d,%d) dst=(%d,%d) px[0]=%08x px[20]=%08x px[100]=%08x px[200]=%08x px[300]=%08x",
 			         (U32)id, (S32)bits_per_pixel, (U32)bytes_per_line,
-			         src_x, src_y, dst_x, dst_y, width, height,
-			         px0, px1, px20, px100);
+			         width, height, src_x, src_y, dst_x, dst_y,
+			         px0, px20, px100, px200, px300);
 		}
 	}
 	if (gc && (gc->clip_rects.size() || gc->values.clip_mask || gc->values.clip_x_origin || gc->values.clip_y_origin)) {
