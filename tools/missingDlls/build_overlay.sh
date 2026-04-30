@@ -73,66 +73,25 @@ else:
 PY
 done
 
-echo "=== Building libGL.so.1 stub from Mesa symbol list ==="
-# Mesa's libGL has ~3500 gl*/glX* exports. Wine's wgl:init_opengl
-# dlsym's every one and bails on the first miss — so we generate a
-# zero-returning stub for every name. A handful (glGetString,
-# glXCreateContext, ...) get real implementations that satisfy
-# Wine's feature checks.
+echo "=== Staging boxedwine's prebuilt libGL.so.1 ==="
+# Boxedwine ships a real libGL.so.1 at tools/opengl/libGL.so.1 (built from
+# tools/opengl/gl.c). It exports ~2900 gl*/glX* symbols and routes every
+# call through `int 0x99` to the GL bridge in source/opengl/glcommon.cpp,
+# which forwards to SDL_GL → WebGL. Use it instead of a stub: dlsyms
+# during Wine init_opengl resolve, glXCreateContext actually creates a
+# WebGL context, and runtime gl* calls render.
 mkdir -p "$WORK/usr/lib" "$WORK/lib/i386-linux-gnu" "$WORK/usr/lib/i386-linux-gnu"
 
-# Step 1: extract every gl/glX symbol Mesa libGL exports
-docker run --rm --platform linux/386 i386/debian:11-slim sh -c '
-    apt-get -qq update >/dev/null 2>&1
-    apt-get -y install libgl1-mesa-glx binutils 2>/dev/null >/dev/null
-    nm -D /usr/lib/i386-linux-gnu/libGL.so.1 | awk "/ T (gl|glX|_glapi)/ { print \$3 }"
-' > "$WORK/gl_symbols.txt"
+PREBUILT_LIBGL="$REPO_ROOT/tools/opengl/libGL.so.1"
+if [[ ! -f "$PREBUILT_LIBGL" ]]; then
+    echo "ERROR: $PREBUILT_LIBGL not found." >&2
+    echo "Rebuild with: cd tools/opengl && ./buildgl.sh" >&2
+    exit 1
+fi
 
-echo "  Mesa exports: $(wc -l < "$WORK/gl_symbols.txt")"
-
-# Step 2: generate the stub C file from libGL_stub.c (hand-written
-# special cases) plus alias-to-zero stubs for everything else.
-python3 - "$WORK/gl_symbols.txt" "$REPO_ROOT/tools/missingDlls/libGL_stub.c" "$WORK/libGL_full.c" <<'PY'
-import sys
-syms_path, hand_path, out_path = sys.argv[1:4]
-with open(syms_path) as f:
-    syms = sorted({s.strip() for s in f if s.strip()})
-SPECIAL = {
-    'glGetString','glGetError','glGetIntegerv','glGetFloatv','glGetBooleanv',
-    'glXGetProcAddress','glXGetProcAddressARB','glXChooseVisual',
-    'glXCreateContext','glXDestroyContext','glXMakeCurrent','glXSwapBuffers',
-    'glXIsDirect','glXGetCurrentContext','glXGetCurrentDrawable',
-    'glXQueryExtension','glXQueryVersion','glXQueryExtensionsString',
-    'glXQueryServerString','glXGetClientString','glXChooseFBConfig',
-    'glXGetVisualFromFBConfig','glXGetFBConfigAttrib',
-    'glXCreateContextAttribsARB','glXSwapIntervalEXT','glXSwapIntervalSGI',
-    'glXSwapIntervalMESA','glXGetSwapIntervalMESA','glXGetVideoSyncSGI',
-    'glXWaitVideoSyncSGI','glXGetCurrentDisplay','glClear','glClearColor',
-    'glViewport','glFlush','glFinish','glEnable','glDisable','glIsEnabled',
-    'glDrawArrays','glDrawElements',
-}
-hand_src = open(hand_path).read()
-with open(out_path,'w') as o:
-    o.write(hand_src)
-    o.write("\n// ---- auto-generated mass stubs ----\n")
-    o.write("static long _stub_zero(void) { return 0; }\n\n")
-    for s in syms:
-        if s in SPECIAL: continue
-        o.write(f'long {s}(void) __attribute__((alias("_stub_zero")));\n')
-PY
-
-# Step 3: cross-compile the stub to an i386 .so
-docker run --rm --platform linux/386 -v "$WORK":/work -w /work \
-        i386/debian:11-slim bash -c '
-    apt-get -qq update >/dev/null 2>&1
-    apt-get -y install gcc 2>/dev/null >/dev/null
-    gcc -m32 -shared -fPIC -Wl,-soname,libGL.so.1 -o libGL.so.1 libGL_full.c 2>&1
-'
-
-# Step 4: stage the stub at the three Linux library paths Wine 6 / ld.so check.
-cp "$WORK/libGL.so.1" "$WORK/usr/lib/libGL.so.1"
-cp "$WORK/libGL.so.1" "$WORK/usr/lib/i386-linux-gnu/libGL.so.1"
-cp "$WORK/libGL.so.1" "$WORK/lib/i386-linux-gnu/libGL.so.1"
+cp "$PREBUILT_LIBGL" "$WORK/usr/lib/libGL.so.1"
+cp "$PREBUILT_LIBGL" "$WORK/usr/lib/i386-linux-gnu/libGL.so.1"
+cp "$PREBUILT_LIBGL" "$WORK/lib/i386-linux-gnu/libGL.so.1"
 
 echo "=== Building $OUT ==="
 rm -f "$OUT"
