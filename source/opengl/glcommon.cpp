@@ -827,10 +827,11 @@ void gl_common_XChooseVisual(CPU* cpu) {
         thread->process->free(result);
         EAX = 0;
     }
+    klog_fmt("[gl] XChooseVisual rgba=%d doubleBuf=%d -> %u", (int)(colorType==K_PFD_TYPE_RGBA), (int)doubleBuffer, (unsigned)EAX);
 }
 
 // GLXContext glXCreateContext(Display* dpy, XVisualInfo* vis, GLXContext shareList, Bool direct) {
-void gl_common_XCreateContext(CPU* cpu) {    
+void gl_common_XCreateContext(CPU* cpu) {
     KThread* thread = cpu->thread;
     KMemory* memory = cpu->memory;
     U32 shareList = ARG3;
@@ -840,6 +841,7 @@ void gl_common_XCreateContext(CPU* cpu) {
     KOpenGLPtr gl = KNativeSystem::getOpenGL();
 
     EAX = gl->glCreateContext(thread, gl->getFormat(pixelFormatId), 0, 0, 0, 0, shareList);
+    klog_fmt("[gl] XCreateContext pf=%u share=%u -> %u", (unsigned)pixelFormatId, (unsigned)shareList, (unsigned)EAX);
 }
 
 // void glXDestroyContext(Display* dpy, GLXContext ctx) {
@@ -855,11 +857,13 @@ void gl_common_XMakeCurrent(CPU* cpu) {
     U32 ctx = ARG3;
 
     if (ctx && !d) {
+        klog_fmt("[gl] XMakeCurrent ctx=%u BUT drawable=%u not found -> False", (unsigned)ctx, (unsigned)ARG2);
         EAX = False;
         return;
-    }    
+    }
     EAX = KNativeSystem::getOpenGL()->glMakeCurrent(thread, d, ctx) ? True : False;
     thread->currentContext = ctx;
+    klog_fmt("[gl] XMakeCurrent drawable=%u ctx=%u -> %u", (unsigned)ARG2, (unsigned)ctx, (unsigned)EAX);
 }
 
 // void pglXCopyContext(Display* dpy, GLXContext src, GLXContext dst, unsigned long mask)
