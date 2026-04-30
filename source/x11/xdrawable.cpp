@@ -36,19 +36,20 @@ U32 XDrawable::getImage(KThread* thread, S32 x, S32 y, U32 width, U32 height, U3
 	if (format != ZPixmap) {
 		kpanic_fmt("XDrawable::createXImage wasn't expecting format = %x", format);
 	}
-	U32 bytesPerLine = calculateBytesPerLine(width, visual->bits_per_rgb);
+	U32 bpp = getBitsPerPixel();
+	U32 bytesPerLine = calculateBytesPerLine(bpp, width);
 	U32 len = bytesPerLine * height;
 	U32 data = thread->process->alloc(thread, len);
 
 	U32 dst = data;
-	U8* src = this->data + this->bytes_per_line * y + (visual->bits_per_rgb * x + 7) / 8;
+	U8* src = this->data + this->bytes_per_line * y + (bpp * x + 7) / 8;
 	for (U32 y = 0; y < height; y++) {
 		thread->memory->memcpy(dst, src, bytesPerLine);
 		src += this->bytes_per_line;
 		dst += bytesPerLine;
 	}
 
-	XImage::set(thread->memory, image, width, height, 0, format, data, 32, depth, bytesPerLine, visual->bits_per_rgb, redMask, greenMask, blueMask);
+	XImage::set(thread->memory, image, width, height, 0, format, data, 32, depth, bytesPerLine, bpp, redMask, greenMask, blueMask);
 	return image;
 }
 
@@ -70,7 +71,7 @@ void XDrawable::setSize(U32 width, U32 height) {
 	BOXEDWINE_CRITICAL_SECTION_WITH_MUTEX(mutex);
 	w = width;
 	h = height;
-	bytes_per_line = calculateBytesPerLine(visual?visual->bits_per_rgb:32, width);
+	bytes_per_line = calculateBytesPerLine(getBitsPerPixel(), width);
 	size = height * bytes_per_line;
 	if (data) {
 		delete[] data;
@@ -87,7 +88,12 @@ int XDrawable::putImage(KThread* thread, const std::shared_ptr<XGC>& gc, XImage*
 }
 
 int XDrawable::copyImageData(KThread* thread, const std::shared_ptr<XGC>& gc, U32 data, U32 bytes_per_line, S32 bits_per_pixel, S32 src_x, S32 src_y, S32 dst_x, S32 dst_y, U32 width, U32 height) {
-	if (bits_per_pixel != this->visual->bits_per_rgb) {
+	// Reject only when the source XImage's actual pixel packing differs from
+	// what this drawable stores. Comparing against visual->bits_per_rgb is
+	// wrong (it's always 8 for any 24/32-bit visual) and silently dropped
+	// every Wine XPutImage to a 32bpp window — that's why AGS Software
+	// rendered as black with vertical stripes.
+	if ((U32)bits_per_pixel != getBitsPerPixel()) {
 		return BadMatch;
 	}
 	if (gc && (gc->clip_rects.size() || gc->values.clip_mask || gc->values.clip_x_origin || gc->values.clip_y_origin)) {
@@ -138,14 +144,16 @@ int XDrawable::copyImageData(KThread* thread, const std::shared_ptr<XGC>& gc, U3
 }
 
 int XDrawable::copy(KThread* thread, const std::shared_ptr<XGC>& gc, const std::shared_ptr<XDrawable>& srcDrawable, S32 srcX, S32 srcY, U32 width, U32 height, S32 dstX, S32 dstY) {
-	if (srcDrawable->visual->bits_per_rgb != this->visual->bits_per_rgb) {
+	U32 srcBpp = srcDrawable->getBitsPerPixel();
+	U32 dstBpp = this->getBitsPerPixel();
+	if (srcBpp != dstBpp) {
 		return BadMatch;
 	}
 	if (gc && (gc->clip_rects.size() || gc->values.clip_mask || gc->values.clip_x_origin || gc->values.clip_y_origin)) {
 		//klog("XDrawable::copyImageData clipping not implemented");
 	}
-	U8* src = srcDrawable->data + srcDrawable->bytes_per_line * srcY + (srcDrawable->visual->bits_per_rgb * srcX + 7) / 8;
-	U8* dst = this->data + this->bytes_per_line * dstY + (this->visual->bits_per_rgb * dstX + 7) / 8;
+	U8* src = srcDrawable->data + srcDrawable->bytes_per_line * srcY + (srcBpp * srcX + 7) / 8;
+	U8* dst = this->data + this->bytes_per_line * dstY + (dstBpp * dstX + 7) / 8;
 
 	if (dstX + width > w) {
 		if ((S32)w < dstX) {
@@ -159,7 +167,7 @@ int XDrawable::copy(KThread* thread, const std::shared_ptr<XGC>& gc, const std::
 		}
 		height = h - dstY;
 	}
-	U32 copyPerLine = (this->visual->bits_per_rgb * width + 7) / 8;
+	U32 copyPerLine = (dstBpp * width + 7) / 8;
 
 	for (U32 y = 0; y < height; y++) {
 		memcpy(dst, src, copyPerLine);
@@ -171,11 +179,12 @@ int XDrawable::copy(KThread* thread, const std::shared_ptr<XGC>& gc, const std::
 }
 
 int XDrawable::drawLine(KThread* thread, const std::shared_ptr<XGC>& gc, S32 x1, S32 y1, S32 x2, S32 y2) {
+	U32 bpp = getBitsPerPixel();
 	if (x1 == x2) {
 		if (x1 >= (S32)w) {
 			return Success;
 		}
-		if (visual->bits_per_rgb == 32) {
+		if (bpp == 32) {
 			U32* p = (U32*)data;
 			U32 color = gc->values.foreground;
 			p += bytes_per_line / 4 * y1;
@@ -185,13 +194,13 @@ int XDrawable::drawLine(KThread* thread, const std::shared_ptr<XGC>& gc, S32 x1,
 				p += bytes_per_line / 4;
 			}
 		} else {
-			kpanic_fmt("XDrawable::drawLine depth %d not supported", visual->bits_per_rgb);
+			kpanic_fmt("XDrawable::drawLine bpp %d not supported", bpp);
 		}
 	} else if (y1 == y2) {
 		if (y1 >= (S32)h) {
 			return Success;
 		}
-		if (visual->bits_per_rgb == 32) {
+		if (bpp == 32) {
 			U32* p = (U32*)data;
 			U32 color = 0xff00;
 			p += bytes_per_line / 4 * y1;
@@ -200,7 +209,7 @@ int XDrawable::drawLine(KThread* thread, const std::shared_ptr<XGC>& gc, S32 x1,
 				p++;
 			}
 		} else {
-			kwarn_fmt("XDrawable::drawLine depth %d not supported", visual->bits_per_rgb);
+			kwarn_fmt("XDrawable::drawLine bpp %d not supported", bpp);
 		}
 	} else {
 		klog("XDrawable::drawLine diag line not supported");
@@ -222,7 +231,8 @@ int XDrawable::fillRectangle(KThread* thread, const std::shared_ptr<XGC>& gc, S3
 		height = h - y;
 	}
 
-	if (visual->bits_per_rgb == 32) {
+	U32 bpp = getBitsPerPixel();
+	if (bpp == 32) {
 		U32* p = (U32*)data;
 		U32 color = gc->values.foreground;
 		p += bytes_per_line / 4 * y;
@@ -233,7 +243,7 @@ int XDrawable::fillRectangle(KThread* thread, const std::shared_ptr<XGC>& gc, S3
 			p += bytes_per_line/4;
 		}
 	} else {
-        kwarn_fmt("XDrawable::fillRectangle only %d-bit not handled", visual->bits_per_rgb);
+        kwarn_fmt("XDrawable::fillRectangle only %d-bit not handled", bpp);
 	}
 	setDirty();
 	return Success;

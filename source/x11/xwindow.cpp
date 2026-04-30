@@ -896,7 +896,12 @@ void XWindow::draw() {
 	S32 screenY = top;
 	//windowToScreen(screenX, screenY);
 	lockData();
-	KNativeSystem::getScreen()->putBitsOnWnd(id, data, visual?visual->bits_per_rgb:32, bytes_per_line, screenX, screenY, width(), height(), palette, isDirty);
+	// Pass actual bits-per-pixel (derived from depth via getBitsPerPixel()),
+	// not visual->bits_per_rgb. bits_per_rgb is bits-per-RGB-channel — always
+	// 8 for any 24/32-bit TrueColor visual — so using it as bpp makes
+	// putBitsOnWnd branch into its 8bpp/paletted path and produce all-black
+	// pixels.
+	KNativeSystem::getScreen()->putBitsOnWnd(id, data, getBitsPerPixel(), bytes_per_line, screenX, screenY, width(), height(), palette, isDirty);
 	unlockData();
 	isDirty = false;
 

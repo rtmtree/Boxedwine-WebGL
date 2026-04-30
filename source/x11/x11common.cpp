@@ -1536,8 +1536,15 @@ static void x11_ListPixelFormats(CPU* cpu) {
         U32 depthAddress = depthsAddress + i * sizeof(Depth);
         Depth depth;
         depth.read(memory, depthAddress);
-        U32 bits_per_rgb = X11_READD(Visual, depth.visuals, bits_per_rgb);
-        listAddress += XPixmapFormatValues::write(memory, listAddress, depth.depth, bits_per_rgb, 32);
+        // bits_per_pixel must be derived from depth (visual.bits_per_rgb is
+        // bits-per-RGB-channel, always 8 for 24/32-bit TrueColor — using it
+        // makes Wine think every visual is paletted).
+        U32 bits_per_pixel;
+        if (depth.depth >= 24) bits_per_pixel = 32;
+        else if (depth.depth >= 16) bits_per_pixel = 16;
+        else if (depth.depth >= 8) bits_per_pixel = 8;
+        else bits_per_pixel = depth.depth ? depth.depth : 8;
+        listAddress += XPixmapFormatValues::write(memory, listAddress, depth.depth, bits_per_pixel, 32);
     }
 }
 

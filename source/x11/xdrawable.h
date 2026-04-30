@@ -43,7 +43,14 @@ public:
 	U32 height() { return h; }
 	U32 getDepth() { return depth; }
 	U32 getBytesPerLine() { return bytes_per_line; }
-	S32 getBitsPerPixel() { return visual->bits_per_rgb; }
+	// Bits-per-pixel from the X depth (Visual::bits_per_rgb is bits-per-RGB-channel
+	// — always 8 for any TrueColor 24/32-bit visual — and can't be used as bpp).
+	U32 getBitsPerPixel() const {
+		if (depth >= 24) return 32;
+		if (depth >= 16) return 16;
+		if (depth >= 8) return 8;
+		return visual ? (U32)visual->bits_per_rgb : 32;
+	}
 
 	void setSize(U32 width, U32 height);
 	
