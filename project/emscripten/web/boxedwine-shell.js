@@ -581,7 +581,17 @@
                 }else if(prog.startsWith('%27') && prog.endsWith('%27')){
                     prog = prog.substring(3, prog.length - 3);
                 }
-                prog = prog.split('%20').join(' ');
+                // Properly URL-decode the path. Browsers accept %2F (slash),
+                // %20 (space), %3A (colon), etc. in URL params; we used to
+                // hand-roll only %20 → space which broke any path that had
+                // %2F kept verbatim from the address bar (e.g. mobile browsers
+                // that re-encode `/` as %2F when copy-pasting URLs).
+                try {
+                    prog = decodeURIComponent(prog);
+                } catch (_) {
+                    // malformed % sequence — fall back to legacy %20 handling
+                    prog = prog.split('%20').join(' ');
+                }
                 console.log("setting program to execute to: "+prog);
             }
             return prog;
