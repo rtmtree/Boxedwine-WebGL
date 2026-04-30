@@ -30,6 +30,10 @@
         inset: 0;
         overscroll-behavior: none;
         touch-action: none;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
       }
       /* Respect iPhone notch / dynamic island / home indicator. Without
          these pads the top slice of the canvas gets drawn *under* the
@@ -51,6 +55,13 @@
       .controls-toggle-btn {
         touch-action: manipulation;
       }
+      canvas {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-user-drag: none;
+      }
+
     </style>
   </head>
 
@@ -131,23 +142,21 @@
           >
             Start
           </button>
-          <button
+          <label
             id="uploadbtn"
             class="ios-button"
-            style="display: none"
-            onclick="document.getElementById('upload').click()"
+            style="display: none; text-align: center; justify-content: center; align-items: center;"
           >
             Add File(s)
-          </button>
-          <input
-            style="display: none"
-            id="upload"
-            name="upload"
-            onclick="document.getElementById('uploadbtn').click()"
-            onchange="startWithFiles(event.target.files)"
-            type="file"
-            multiple
-          />
+            <input
+              style="display: none"
+              id="upload"
+              name="upload"
+              onchange="startWithFiles(event.target.files)"
+              type="file"
+              multiple
+            />
+          </label>
           <button
             id="downloadbtn"
             class="ios-button"
@@ -164,21 +173,21 @@
           >
             Save State
           </button>
-          <button
+          <label
             id="loadstatebtn"
             class="ios-button"
-            style="display: none"
-            onclick="document.getElementById('loadstatefile').click()"
+            style="display: none; text-align: center; justify-content: center; align-items: center;"
           >
             Load State
-          </button>
-          <input
-            style="display: none"
-            id="loadstatefile"
-            type="file"
-            accept=".boxedstate"
-            onchange="loadState(event.target.files[0])"
-          />
+            <input
+              style="display: none"
+              id="loadstatefile"
+              type="file"
+              accept=".boxedstate"
+              onchange="loadState(event.target.files[0])"
+            />
+          </label>
+
           <button
             id="persistpcbtn"
             class="ios-button"
