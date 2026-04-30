@@ -1042,6 +1042,24 @@
             // those probes block on X events that boxedwine never delivers.
             params.push("-env");
             params.push('SDL_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR=0');
+            // ?winedebug=... lets a URL turn on Wine's per-channel logging
+            // when chasing a "Wine starts but the game window never appears"
+            // bug. Channels of interest:
+            //   * +module    — DLL loads
+            //   * +wgl       — opengl32 / glX init
+            //   * +x11drv    — winex11.drv events
+            //   * +seh       — exceptions
+            //   * +loaddll   — dynamic library probes
+            // Example: ?winedebug=+wgl,+x11drv,+module
+            (function(){
+                var s = (window.location.search || '');
+                var m = /[?&]winedebug=([^&]+)/i.exec(s);
+                if (m && m[1]) {
+                    var val = decodeURIComponent(m[1]);
+                    params.push('-env');
+                    params.push('WINEDEBUG=' + val);
+                }
+            })();
 
 			if (!Config.loadDesktop) {
             	if(Config.WorkingDir.length > 0){
