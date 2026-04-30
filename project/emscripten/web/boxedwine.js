@@ -5706,18 +5706,11 @@ function __munmap_js(addr, len, prot, flags, fd, offset) {
 var timers = {};
 
 var handleException = e => {
-  if (e instanceof ExitStatus || e == "unwind") return EXITSTATUS;
-  if (typeof WebAssembly !== "undefined" && WebAssembly.Exception && e instanceof WebAssembly.Exception) {
-    if (!window.__suppressedWasmExceptions) window.__suppressedWasmExceptions = 0;
-    window.__suppressedWasmExceptions++;
-    return 0;
-  }
-  if (e instanceof TypeError && /GLctx|Cannot read properties of undefined/.test(String(e && e.message))) {
-    if (!window.__suppressedGLctxErrors) window.__suppressedGLctxErrors = 0;
-    window.__suppressedGLctxErrors++;
-    return 0;
-  }
-  // fall through:
+  // Certain exception types we do not treat as errors since they are used for
+  // internal control flow.
+  // 1. ExitStatus, which is thrown by exit()
+  // 2. "unwind", which is thrown by emscripten_unwind_to_js_event_loop() and others
+  //    that wish to return to JS event loop.
   if (e instanceof ExitStatus || e == "unwind") {
     return EXITSTATUS;
   }
@@ -7836,7 +7829,6 @@ var _emscripten_glBeginQueryEXT = (target, id) => {
 };
 
 function _emscripten_glBindAttribLocation(program, index, name) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   name >>>= 0;
   GLctx.bindAttribLocation(GL.programs[program], index, UTF8ToString(name));
 }
@@ -7874,7 +7866,6 @@ var _emscripten_glBlendFunc = (x0, x1) => GLctx.blendFunc(x0, x1);
 var _emscripten_glBlendFuncSeparate = (x0, x1, x2, x3) => GLctx.blendFuncSeparate(x0, x1, x2, x3);
 
 function _emscripten_glBufferData(target, size, data, usage) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   size >>>= 0;
   data >>>= 0;
   // N.b. here first form specifies a heap subarray, second form an integer
@@ -7885,7 +7876,6 @@ function _emscripten_glBufferData(target, size, data, usage) {
 }
 
 function _emscripten_glBufferSubData(target, offset, size, data) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   offset >>>= 0;
   size >>>= 0;
   data >>>= 0;
@@ -7915,7 +7905,6 @@ var _emscripten_glCompileShader = shader => {
 };
 
 function _emscripten_glCompressedTexImage2D(target, level, internalFormat, width, height, border, imageSize, data) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   data >>>= 0;
   // `data` may be null here, which means "allocate uniniitalized space but
   // don't upload" in GLES parlance, but `compressedTexImage2D` requires the
@@ -7926,7 +7915,6 @@ function _emscripten_glCompressedTexImage2D(target, level, internalFormat, width
 }
 
 function _emscripten_glCompressedTexSubImage2D(target, level, xoffset, yoffset, width, height, format, imageSize, data) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   data >>>= 0;
   GLctx.compressedTexSubImage2D(target, level, xoffset, yoffset, width, height, format, HEAPU8.subarray((data) >>> 0, data + imageSize >>> 0));
 }
@@ -7957,7 +7945,6 @@ var _emscripten_glCreateShader = shaderType => {
 var _emscripten_glCullFace = x0 => GLctx.cullFace(x0);
 
 function _emscripten_glDeleteBuffers(n, buffers) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   buffers >>>= 0;
   for (var i = 0; i < n; i++) {
     var id = HEAP32[(((buffers) + (i * 4)) >>> 2) >>> 0];
@@ -7972,7 +7959,6 @@ function _emscripten_glDeleteBuffers(n, buffers) {
 }
 
 function _emscripten_glDeleteFramebuffers(n, framebuffers) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   framebuffers >>>= 0;
   for (var i = 0; i < n; ++i) {
     var id = HEAP32[(((framebuffers) + (i * 4)) >>> 2) >>> 0];
@@ -8000,7 +7986,6 @@ var _emscripten_glDeleteProgram = id => {
 };
 
 function _emscripten_glDeleteQueriesEXT(n, ids) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   ids >>>= 0;
   for (var i = 0; i < n; i++) {
     var id = HEAP32[(((ids) + (i * 4)) >>> 2) >>> 0];
@@ -8013,7 +7998,6 @@ function _emscripten_glDeleteQueriesEXT(n, ids) {
 }
 
 function _emscripten_glDeleteRenderbuffers(n, renderbuffers) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   renderbuffers >>>= 0;
   for (var i = 0; i < n; i++) {
     var id = HEAP32[(((renderbuffers) + (i * 4)) >>> 2) >>> 0];
@@ -8040,7 +8024,6 @@ var _emscripten_glDeleteShader = id => {
 };
 
 function _emscripten_glDeleteTextures(n, textures) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   textures >>>= 0;
   for (var i = 0; i < n; i++) {
     var id = HEAP32[(((textures) + (i * 4)) >>> 2) >>> 0];
@@ -8055,7 +8038,6 @@ function _emscripten_glDeleteTextures(n, textures) {
 }
 
 function _emscripten_glDeleteVertexArrays(n, vaos) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   vaos >>>= 0;
   for (var i = 0; i < n; i++) {
     var id = HEAP32[(((vaos) + (i * 4)) >>> 2) >>> 0];
@@ -8097,7 +8079,6 @@ var _emscripten_glDrawArraysInstancedANGLE = _emscripten_glDrawArraysInstanced;
 var tempFixedLengthArray = [];
 
 function _emscripten_glDrawBuffers(n, bufs) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   bufs >>>= 0;
   var bufArray = tempFixedLengthArray[n];
   for (var i = 0; i < n; i++) {
@@ -8109,13 +8090,11 @@ function _emscripten_glDrawBuffers(n, bufs) {
 var _emscripten_glDrawBuffersWEBGL = _emscripten_glDrawBuffers;
 
 function _emscripten_glDrawElements(mode, count, type, indices) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   indices >>>= 0;
   GLctx.drawElements(mode, count, type, indices);
 }
 
 function _emscripten_glDrawElementsInstanced(mode, count, type, indices, primcount) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   indices >>>= 0;
   GLctx.drawElementsInstanced(mode, count, type, indices, primcount);
 }
@@ -8147,19 +8126,16 @@ var _emscripten_glFramebufferTexture2D = (target, attachment, textarget, texture
 var _emscripten_glFrontFace = x0 => GLctx.frontFace(x0);
 
 function _emscripten_glGenBuffers(n, buffers) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   buffers >>>= 0;
   GL.genObject(n, buffers, "createBuffer", GL.buffers);
 }
 
 function _emscripten_glGenFramebuffers(n, ids) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   ids >>>= 0;
   GL.genObject(n, ids, "createFramebuffer", GL.framebuffers);
 }
 
 function _emscripten_glGenQueriesEXT(n, ids) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   ids >>>= 0;
   for (var i = 0; i < n; i++) {
     var query = GLctx.disjointTimerQueryExt["createQueryEXT"]();
@@ -8176,19 +8152,16 @@ function _emscripten_glGenQueriesEXT(n, ids) {
 }
 
 function _emscripten_glGenRenderbuffers(n, renderbuffers) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   renderbuffers >>>= 0;
   GL.genObject(n, renderbuffers, "createRenderbuffer", GL.renderbuffers);
 }
 
 function _emscripten_glGenTextures(n, textures) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   textures >>>= 0;
   GL.genObject(n, textures, "createTexture", GL.textures);
 }
 
 function _emscripten_glGenVertexArrays(n, arrays) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   arrays >>>= 0;
   GL.genObject(n, arrays, "createVertexArray", GL.vaos);
 }
@@ -8210,7 +8183,6 @@ var __glGetActiveAttribOrUniform = (funcName, program, index, bufSize, length, s
 };
 
 function _emscripten_glGetActiveAttrib(program, index, bufSize, length, size, type, name) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   length >>>= 0;
   size >>>= 0;
   type >>>= 0;
@@ -8219,7 +8191,6 @@ function _emscripten_glGetActiveAttrib(program, index, bufSize, length, size, ty
 }
 
 function _emscripten_glGetActiveUniform(program, index, bufSize, length, size, type, name) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   length >>>= 0;
   size >>>= 0;
   type >>>= 0;
@@ -8228,7 +8199,6 @@ function _emscripten_glGetActiveUniform(program, index, bufSize, length, size, t
 }
 
 function _emscripten_glGetAttachedShaders(program, maxCount, count, shaders) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   count >>>= 0;
   shaders >>>= 0;
   var result = GLctx.getAttachedShaders(GL.programs[program]);
@@ -8244,7 +8214,6 @@ function _emscripten_glGetAttachedShaders(program, maxCount, count, shaders) {
 }
 
 function _emscripten_glGetAttribLocation(program, name) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   name >>>= 0;
   return GLctx.getAttribLocation(GL.programs[program], UTF8ToString(name));
 }
@@ -8261,7 +8230,6 @@ var writeI53ToI64 = (ptr, num) => {
 };
 
 var emscriptenWebGLGet = (name_, p, type) => {
-  if (typeof GLctx === "undefined" || !GLctx) { if (p) { switch (type) { case 0: HEAP32[(p)>>>2]=0; break; case 1: HEAPU8[p]=0; break; case 2: HEAPF32[(p)>>>2]=0; break; case 4: HEAP32[(p)>>>2]=0; HEAP32[((p)+4)>>>2]=0; break; } } return; }
   // Guard against user passing a null pointer.
   // Note that GLES2 spec does not say anything about how passing a null
   // pointer should be treated.  Testing on desktop core GL 3, the application
@@ -8409,13 +8377,11 @@ var emscriptenWebGLGet = (name_, p, type) => {
 };
 
 function _emscripten_glGetBooleanv(name_, p) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   p >>>= 0;
   return emscriptenWebGLGet(name_, p, 4);
 }
 
 function _emscripten_glGetBufferParameteriv(target, value, data) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   data >>>= 0;
   if (!data) {
     // GLES2 specification does not specify how to behave if data is a null
@@ -8434,13 +8400,11 @@ var _emscripten_glGetError = () => {
 };
 
 function _emscripten_glGetFloatv(name_, p) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   p >>>= 0;
   return emscriptenWebGLGet(name_, p, 2);
 }
 
 function _emscripten_glGetFramebufferAttachmentParameteriv(target, attachment, pname, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   var result = GLctx.getFramebufferAttachmentParameter(target, attachment, pname);
   if (result instanceof WebGLRenderbuffer || result instanceof WebGLTexture) {
@@ -8450,13 +8414,11 @@ function _emscripten_glGetFramebufferAttachmentParameteriv(target, attachment, p
 }
 
 function _emscripten_glGetIntegerv(name_, p) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   p >>>= 0;
   return emscriptenWebGLGet(name_, p, 0);
 }
 
 function _emscripten_glGetProgramInfoLog(program, maxLength, length, infoLog) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   length >>>= 0;
   infoLog >>>= 0;
   var log = GLctx.getProgramInfoLog(GL.programs[program]);
@@ -8466,7 +8428,6 @@ function _emscripten_glGetProgramInfoLog(program, maxLength, length, infoLog) {
 }
 
 function _emscripten_glGetProgramiv(program, pname, p) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   p >>>= 0;
   if (!p) {
     // GLES2 specification does not specify how to behave if p is a null
@@ -8515,7 +8476,6 @@ function _emscripten_glGetProgramiv(program, pname, p) {
 }
 
 function _emscripten_glGetQueryObjecti64vEXT(id, pname, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   if (!params) {
     // GLES2 specification does not specify how to behave if params is a null pointer. Since calling this function does not make sense
@@ -8538,7 +8498,6 @@ function _emscripten_glGetQueryObjecti64vEXT(id, pname, params) {
 }
 
 function _emscripten_glGetQueryObjectivEXT(id, pname, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   if (!params) {
     // GLES2 specification does not specify how to behave if params is a null pointer. Since calling this function does not make sense
@@ -8562,7 +8521,6 @@ var _emscripten_glGetQueryObjectui64vEXT = _emscripten_glGetQueryObjecti64vEXT;
 var _emscripten_glGetQueryObjectuivEXT = _emscripten_glGetQueryObjectivEXT;
 
 function _emscripten_glGetQueryivEXT(target, pname, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   if (!params) {
     // GLES2 specification does not specify how to behave if params is a null pointer. Since calling this function does not make sense
@@ -8574,7 +8532,6 @@ function _emscripten_glGetQueryivEXT(target, pname, params) {
 }
 
 function _emscripten_glGetRenderbufferParameteriv(target, pname, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   if (!params) {
     // GLES2 specification does not specify how to behave if params is a null pointer. Since calling this function does not make sense
@@ -8586,7 +8543,6 @@ function _emscripten_glGetRenderbufferParameteriv(target, pname, params) {
 }
 
 function _emscripten_glGetShaderInfoLog(shader, maxLength, length, infoLog) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   length >>>= 0;
   infoLog >>>= 0;
   var log = GLctx.getShaderInfoLog(GL.shaders[shader]);
@@ -8596,7 +8552,6 @@ function _emscripten_glGetShaderInfoLog(shader, maxLength, length, infoLog) {
 }
 
 function _emscripten_glGetShaderPrecisionFormat(shaderType, precisionType, range, precision) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   range >>>= 0;
   precision >>>= 0;
   var result = GLctx.getShaderPrecisionFormat(shaderType, precisionType);
@@ -8606,7 +8561,6 @@ function _emscripten_glGetShaderPrecisionFormat(shaderType, precisionType, range
 }
 
 function _emscripten_glGetShaderSource(shader, bufSize, length, source) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   length >>>= 0;
   source >>>= 0;
   var result = GLctx.getShaderSource(GL.shaders[shader]);
@@ -8617,7 +8571,6 @@ function _emscripten_glGetShaderSource(shader, bufSize, length, source) {
 }
 
 function _emscripten_glGetShaderiv(shader, pname, p) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   p >>>= 0;
   if (!p) {
     // GLES2 specification does not specify how to behave if p is a null
@@ -8655,7 +8608,6 @@ var webglGetExtensions = () => {
 };
 
 function _emscripten_glGetString(name_) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   var ret = GL.stringCache[name_];
   if (!ret) {
     switch (name_) {
@@ -8703,7 +8655,6 @@ function _emscripten_glGetString(name_) {
 }
 
 function _emscripten_glGetTexParameterfv(target, pname, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   if (!params) {
     // GLES2 specification does not specify how to behave if params is a null
@@ -8716,7 +8667,6 @@ function _emscripten_glGetTexParameterfv(target, pname, params) {
 }
 
 function _emscripten_glGetTexParameteriv(target, pname, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   if (!params) {
     // GLES2 specification does not specify how to behave if params is a null
@@ -8770,7 +8720,6 @@ var webglPrepareUniformLocationsBeforeFirstUse = program => {
 };
 
 function _emscripten_glGetUniformLocation(program, name) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   name >>>= 0;
   name = UTF8ToString(name);
   if (program = GL.programs[program]) {
@@ -8871,19 +8820,16 @@ var webglGetUniformLocation = location => {
 };
 
 function _emscripten_glGetUniformfv(program, location, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   emscriptenWebGLGetUniform(program, location, params, 2);
 }
 
 function _emscripten_glGetUniformiv(program, location, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   emscriptenWebGLGetUniform(program, location, params, 0);
 }
 
 function _emscripten_glGetVertexAttribPointerv(index, pname, pointer) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   pointer >>>= 0;
   if (!pointer) {
     // GLES2 specification does not specify how to behave if pointer is a null
@@ -8940,7 +8886,6 @@ function _emscripten_glGetVertexAttribPointerv(index, pname, pointer) {
 };
 
 function _emscripten_glGetVertexAttribfv(index, pname, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   // N.B. This function may only be called if the vertex attribute was
   // specified using the function glVertexAttrib*f(), otherwise the results
@@ -8949,7 +8894,6 @@ function _emscripten_glGetVertexAttribfv(index, pname, params) {
 }
 
 function _emscripten_glGetVertexAttribiv(index, pname, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   // N.B. This function may only be called if the vertex attribute was
   // specified using the function glVertexAttrib*f(), otherwise the results
@@ -9095,7 +9039,6 @@ var emscriptenWebGLGetTexPixelData = (type, format, width, height, pixels, inter
 };
 
 function _emscripten_glReadPixels(x, y, width, height, format, type, pixels) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   pixels >>>= 0;
   var pixelData = emscriptenWebGLGetTexPixelData(type, format, width, height, pixels, format);
   if (!pixelData) {
@@ -9116,14 +9059,12 @@ var _emscripten_glSampleCoverage = (value, invert) => {
 var _emscripten_glScissor = (x0, x1, x2, x3) => GLctx.scissor(x0, x1, x2, x3);
 
 function _emscripten_glShaderBinary(count, shaders, binaryformat, binary, length) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   shaders >>>= 0;
   binary >>>= 0;
   GL.recordError(1280);
 }
 
 function _emscripten_glShaderSource(shader, count, string, length) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   string >>>= 0;
   length >>>= 0;
   var source = GL.getSource(shader, count, string, length);
@@ -9143,7 +9084,6 @@ var _emscripten_glStencilOp = (x0, x1, x2) => GLctx.stencilOp(x0, x1, x2);
 var _emscripten_glStencilOpSeparate = (x0, x1, x2, x3) => GLctx.stencilOpSeparate(x0, x1, x2, x3);
 
 function _emscripten_glTexImage2D(target, level, internalFormat, width, height, border, format, type, pixels) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   pixels >>>= 0;
   var pixelData = pixels ? emscriptenWebGLGetTexPixelData(type, format, width, height, pixels, internalFormat) : null;
   GLctx.texImage2D(target, level, internalFormat, width, height, border, format, type, pixelData);
@@ -9152,7 +9092,6 @@ function _emscripten_glTexImage2D(target, level, internalFormat, width, height, 
 var _emscripten_glTexParameterf = (x0, x1, x2) => GLctx.texParameterf(x0, x1, x2);
 
 function _emscripten_glTexParameterfv(target, pname, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   var param = HEAPF32[((params) >>> 2) >>> 0];
   GLctx.texParameterf(target, pname, param);
@@ -9161,14 +9100,12 @@ function _emscripten_glTexParameterfv(target, pname, params) {
 var _emscripten_glTexParameteri = (x0, x1, x2) => GLctx.texParameteri(x0, x1, x2);
 
 function _emscripten_glTexParameteriv(target, pname, params) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   params >>>= 0;
   var param = HEAP32[((params) >>> 2) >>> 0];
   GLctx.texParameteri(target, pname, param);
 }
 
 function _emscripten_glTexSubImage2D(target, level, xoffset, yoffset, width, height, format, type, pixels) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   pixels >>>= 0;
   var pixelData = pixels ? emscriptenWebGLGetTexPixelData(type, format, width, height, pixels, 0) : null;
   GLctx.texSubImage2D(target, level, xoffset, yoffset, width, height, format, type, pixelData);
@@ -9181,7 +9118,6 @@ var _emscripten_glUniform1f = (location, v0) => {
 var miniTempWebGLFloatBuffers = [];
 
 function _emscripten_glUniform1fv(location, count, value) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 288) {
     // avoid allocation when uploading few enough uniforms
@@ -9202,7 +9138,6 @@ var _emscripten_glUniform1i = (location, v0) => {
 var miniTempWebGLIntBuffers = [];
 
 function _emscripten_glUniform1iv(location, count, value) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 288) {
     // avoid allocation when uploading few enough uniforms
@@ -9221,7 +9156,6 @@ var _emscripten_glUniform2f = (location, v0, v1) => {
 };
 
 function _emscripten_glUniform2fv(location, count, value) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 144) {
     // avoid allocation when uploading few enough uniforms
@@ -9242,7 +9176,6 @@ var _emscripten_glUniform2i = (location, v0, v1) => {
 };
 
 function _emscripten_glUniform2iv(location, count, value) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 144) {
     // avoid allocation when uploading few enough uniforms
@@ -9263,7 +9196,6 @@ var _emscripten_glUniform3f = (location, v0, v1, v2) => {
 };
 
 function _emscripten_glUniform3fv(location, count, value) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 96) {
     // avoid allocation when uploading few enough uniforms
@@ -9285,7 +9217,6 @@ var _emscripten_glUniform3i = (location, v0, v1, v2) => {
 };
 
 function _emscripten_glUniform3iv(location, count, value) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 96) {
     // avoid allocation when uploading few enough uniforms
@@ -9307,7 +9238,6 @@ var _emscripten_glUniform4f = (location, v0, v1, v2, v3) => {
 };
 
 function _emscripten_glUniform4fv(location, count, value) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 72) {
     // avoid allocation when uploading few enough uniforms
@@ -9334,7 +9264,6 @@ var _emscripten_glUniform4i = (location, v0, v1, v2, v3) => {
 };
 
 function _emscripten_glUniform4iv(location, count, value) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 72) {
     // avoid allocation when uploading few enough uniforms
@@ -9353,7 +9282,6 @@ function _emscripten_glUniform4iv(location, count, value) {
 }
 
 function _emscripten_glUniformMatrix2fv(location, count, transpose, value) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 72) {
     // avoid allocation when uploading few enough uniforms
@@ -9372,7 +9300,6 @@ function _emscripten_glUniformMatrix2fv(location, count, transpose, value) {
 }
 
 function _emscripten_glUniformMatrix3fv(location, count, transpose, value) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 32) {
     // avoid allocation when uploading few enough uniforms
@@ -9396,7 +9323,6 @@ function _emscripten_glUniformMatrix3fv(location, count, transpose, value) {
 }
 
 function _emscripten_glUniformMatrix4fv(location, count, transpose, value) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   value >>>= 0;
   if (count <= 18) {
     // avoid allocation when uploading few enough uniforms
@@ -9445,7 +9371,6 @@ var _emscripten_glValidateProgram = program => {
 var _emscripten_glVertexAttrib1f = (x0, x1) => GLctx.vertexAttrib1f(x0, x1);
 
 function _emscripten_glVertexAttrib1fv(index, v) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   v >>>= 0;
   GLctx.vertexAttrib1f(index, HEAPF32[v >>> 2]);
 }
@@ -9453,7 +9378,6 @@ function _emscripten_glVertexAttrib1fv(index, v) {
 var _emscripten_glVertexAttrib2f = (x0, x1, x2) => GLctx.vertexAttrib2f(x0, x1, x2);
 
 function _emscripten_glVertexAttrib2fv(index, v) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   v >>>= 0;
   GLctx.vertexAttrib2f(index, HEAPF32[v >>> 2], HEAPF32[v + 4 >>> 2]);
 }
@@ -9461,7 +9385,6 @@ function _emscripten_glVertexAttrib2fv(index, v) {
 var _emscripten_glVertexAttrib3f = (x0, x1, x2, x3) => GLctx.vertexAttrib3f(x0, x1, x2, x3);
 
 function _emscripten_glVertexAttrib3fv(index, v) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   v >>>= 0;
   GLctx.vertexAttrib3f(index, HEAPF32[v >>> 2], HEAPF32[v + 4 >>> 2], HEAPF32[v + 8 >>> 2]);
 }
@@ -9469,7 +9392,6 @@ function _emscripten_glVertexAttrib3fv(index, v) {
 var _emscripten_glVertexAttrib4f = (x0, x1, x2, x3, x4) => GLctx.vertexAttrib4f(x0, x1, x2, x3, x4);
 
 function _emscripten_glVertexAttrib4fv(index, v) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   v >>>= 0;
   GLctx.vertexAttrib4f(index, HEAPF32[v >>> 2], HEAPF32[v + 4 >>> 2], HEAPF32[v + 8 >>> 2], HEAPF32[v + 12 >>> 2]);
 }
@@ -9481,7 +9403,6 @@ var _emscripten_glVertexAttribDivisor = (index, divisor) => {
 var _emscripten_glVertexAttribDivisorANGLE = _emscripten_glVertexAttribDivisor;
 
 function _emscripten_glVertexAttribPointer(index, size, type, normalized, stride, ptr) {
-  if (typeof GLctx === "undefined" || !GLctx) return 0;
   ptr >>>= 0;
   GLctx.vertexAttribPointer(index, size, type, !!normalized, stride, ptr);
 }
@@ -10989,6 +10910,8 @@ var _diagPutBitsMaxW = Module["_diagPutBitsMaxW"] = makeInvalidEarlyAccess("_dia
 
 var _diagPutBitsMaxH = Module["_diagPutBitsMaxH"] = makeInvalidEarlyAccess("_diagPutBitsMaxH");
 
+var _diagForcedDirty = Module["_diagForcedDirty"] = makeInvalidEarlyAccess("_diagForcedDirty");
+
 var _main = Module["_main"] = makeInvalidEarlyAccess("_main");
 
 var _strerror = makeInvalidEarlyAccess("_strerror");
@@ -11051,6 +10974,7 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports["diagPutBitsDirty"] != "undefined", "missing Wasm export: diagPutBitsDirty");
   assert(typeof wasmExports["diagPutBitsMaxW"] != "undefined", "missing Wasm export: diagPutBitsMaxW");
   assert(typeof wasmExports["diagPutBitsMaxH"] != "undefined", "missing Wasm export: diagPutBitsMaxH");
+  assert(typeof wasmExports["diagForcedDirty"] != "undefined", "missing Wasm export: diagForcedDirty");
   assert(typeof wasmExports["__main_argc_argv"] != "undefined", "missing Wasm export: __main_argc_argv");
   assert(typeof wasmExports["strerror"] != "undefined", "missing Wasm export: strerror");
   assert(typeof wasmExports["fflush"] != "undefined", "missing Wasm export: fflush");
@@ -11086,6 +11010,7 @@ function assignWasmExports(wasmExports) {
   _diagPutBitsDirty = Module["_diagPutBitsDirty"] = createExportWrapper("diagPutBitsDirty", 0);
   _diagPutBitsMaxW = Module["_diagPutBitsMaxW"] = createExportWrapper("diagPutBitsMaxW", 0);
   _diagPutBitsMaxH = Module["_diagPutBitsMaxH"] = createExportWrapper("diagPutBitsMaxH", 0);
+  _diagForcedDirty = Module["_diagForcedDirty"] = createExportWrapper("diagForcedDirty", 0);
   _main = Module["_main"] = createExportWrapper("__main_argc_argv", 2);
   _strerror = createExportWrapper("strerror", 1);
   _fflush = createExportWrapper("fflush", 1);
