@@ -1013,15 +1013,23 @@
                 params.push("-env");
                 params.push('SDL_AUDIODRIVER=dummy');
             }
-            // Disable msctf.dll. The Wine prefix only ships a 3.5KB stub of
-            // it; SDL2's IME init calls CoCreateInstance(CLSID_TF_ThreadMgr)
-            // which loops forever in apartment_add_dll trying to load the
-            // stub, repeatedly logging the {529a9e6b-…} class-object failure.
-            // SDL2 has a fallback path when msctf is unavailable, which is
-            // strictly cheaper than the error loop. WINEDLLOVERRIDES syntax:
-            // `name=` (empty value) means "do not load this DLL".
+            // WINEDLLOVERRIDES — a single semicolon-separated string. Setting
+            // it twice means the second one wins, so combine all overrides
+            // into one push:
+            //   * msctf=          → don't load (SDL2 IME init looped in
+            //                       apartment_add_dll otherwise; see commit
+            //                       1aa4fe96).
+            //   * avrt=n,b        → try the prefix's PE first then fall back
+            //                       to the builtin .so. Some games (4HGame
+            //                       among them) IMPORT avrt's exports and
+            //                       refuse to load if the DLL is missing.
+            //   * dinput8=n,b     → same shape.
+            // `n,b` means "try native PE first, then Wine builtin". A user
+            // overlay zip can drop a real PE at .wine/drive_c/.../avrt.dll
+            // and it will be picked up here even on a Wine-6.0 prefix that
+            // marks avrt as builtin internally.
             params.push("-env");
-            params.push('WINEDLLOVERRIDES=msctf=');
+            params.push('WINEDLLOVERRIDES=msctf=;avrt=n,b;dinput8=n,b');
             // Force SDL2 to use the software renderer. Without this hint SDL2
             // tries d3d9 / d3d11 first; both fail in our wasm wine (no real
             // GPU drivers in the prefix) and the fallback path can leave
