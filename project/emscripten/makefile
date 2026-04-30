@@ -1,12 +1,18 @@
 ifndef BUILD_DIR
 
-.PHONY: default all clean release test multiThreaded
+.PHONY: default all clean release release64 test multiThreaded
 
 default all: release
 
 release: export BUILD_DIR := Build/Release
 release: export EXTRA_CPP_FLAGS := $(RELEASE_FLAGS)
 release: export SHELL_FILE := shell.html
+# release64: experimental 64-bit-guest target. Adds BOXEDWINE_64BIT_GUEST
+# which compiles in source/emulation/cpu64/. The 32-bit interpreter is
+# still present and the default; 64-bit ELFs go through the new path.
+release64: export BUILD_DIR := Build/Release64
+release64: export EXTRA_CPP_FLAGS := -DBOXEDWINE_64BIT_GUEST $(RELEASE_FLAGS)
+release64: export SHELL_FILE := shell.html
 test: export BUILD_DIR := Build/Test
 test: export EXTRA_CPP_FLAGS := -D__TEST
 test: export SHELL_FILE := shelltest.html
@@ -31,7 +37,7 @@ cpus := $(shell echo $$(($(cpus)-1)))
 export MAKEFLAGS := -j $(cpus)
 $(info MAKEFLAGS is $(MAKEFLAGS))
 endif
-jit release test testJit multiThreaded testMultiThreaded:
+jit release release64 test testJit multiThreaded testMultiThreaded:
 	@$(MAKE)
 
 clean:
