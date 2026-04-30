@@ -1003,6 +1003,15 @@
                 params.push("-env");
                 params.push('SDL_AUDIODRIVER=dummy');
             }
+            // Disable msctf.dll. The Wine prefix only ships a 3.5KB stub of
+            // it; SDL2's IME init calls CoCreateInstance(CLSID_TF_ThreadMgr)
+            // which loops forever in apartment_add_dll trying to load the
+            // stub, repeatedly logging the {529a9e6b-…} class-object failure.
+            // SDL2 has a fallback path when msctf is unavailable, which is
+            // strictly cheaper than the error loop. WINEDLLOVERRIDES syntax:
+            // `name=` (empty value) means "do not load this DLL".
+            params.push("-env");
+            params.push('WINEDLLOVERRIDES=msctf=');
 
 			if (!Config.loadDesktop) {
             	if(Config.WorkingDir.length > 0){

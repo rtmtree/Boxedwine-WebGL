@@ -72,6 +72,7 @@ public:
 	void processExit(U32 pid);
 
 	void draw(bool drawNow = false);
+	void nudgeExpose();
 	const XWindowPtr& getRoot();
 	U32 getEventTime();
 	U32 getInputModifiers();

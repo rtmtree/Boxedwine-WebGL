@@ -10554,18 +10554,18 @@ function checkIncomingModuleAPI() {
 }
 
 var ASM_CONSTS = {
-  490284: () => {},
-  490285: () => HEAPU8.length,
-  490311: () => {
+  491564: () => {},
+  491565: () => HEAPU8.length,
+  491591: () => {
     window.__boxedwineSaveBegin && window.__boxedwineSaveBegin();
   },
-  490377: ($0, $1) => {
+  491657: ($0, $1) => {
     window.__boxedwineSaveChunk && window.__boxedwineSaveChunk($0, $1);
   },
-  490449: () => (window.__boxedwineSaveEnd && window.__boxedwineSaveEnd()) ? 1 : 0,
-  490528: () => HEAPU8.length,
-  490554: ($0, $1) => (window.__boxedwineLoadRead && window.__boxedwineLoadRead($0, $1)) || 0,
-  490638: $0 => {
+  491729: () => (window.__boxedwineSaveEnd && window.__boxedwineSaveEnd()) ? 1 : 0,
+  491808: () => HEAPU8.length,
+  491834: ($0, $1) => (window.__boxedwineLoadRead && window.__boxedwineLoadRead($0, $1)) || 0,
+  491918: $0 => {
     var str = UTF8ToString($0) + "\n\n" + "Abort/Retry/Ignore/AlwaysIgnore? [ariA] :";
     var reply = window.prompt(str, "i");
     if (reply === null) {
@@ -10573,7 +10573,7 @@ var ASM_CONSTS = {
     }
     return reply.length === 1 ? reply.charCodeAt(0) : -1;
   },
-  490853: () => {
+  492133: () => {
     if (typeof (AudioContext) !== "undefined") {
       return true;
     } else if (typeof (webkitAudioContext) !== "undefined") {
@@ -10581,7 +10581,7 @@ var ASM_CONSTS = {
     }
     return false;
   },
-  491e3: () => {
+  492280: () => {
     if ((typeof (navigator.mediaDevices) !== "undefined") && (typeof (navigator.mediaDevices.getUserMedia) !== "undefined")) {
       return true;
     } else if (typeof (navigator.webkitGetUserMedia) !== "undefined") {
@@ -10589,7 +10589,7 @@ var ASM_CONSTS = {
     }
     return false;
   },
-  491234: $0 => {
+  492514: $0 => {
     if (typeof (Module["SDL2"]) === "undefined") {
       Module["SDL2"] = {};
     }
@@ -10613,11 +10613,11 @@ var ASM_CONSTS = {
     }
     return SDL2.audioContext === undefined ? -1 : 0;
   },
-  491786: () => {
+  493066: () => {
     var SDL2 = Module["SDL2"];
     return SDL2.audioContext.sampleRate;
   },
-  491854: ($0, $1, $2, $3) => {
+  493134: ($0, $1, $2, $3) => {
     var SDL2 = Module["SDL2"];
     var have_microphone = function(stream) {
       if (SDL2.capture.silenceTimer !== undefined) {
@@ -10659,7 +10659,7 @@ var ASM_CONSTS = {
       }, have_microphone, no_microphone);
     }
   },
-  493547: ($0, $1, $2, $3) => {
+  494827: ($0, $1, $2, $3) => {
     var SDL2 = Module["SDL2"];
     SDL2.audio.scriptProcessorNode = SDL2.audioContext["createScriptProcessor"]($1, 0, $0);
     SDL2.audio.scriptProcessorNode["onaudioprocess"] = function(e) {
@@ -10691,7 +10691,7 @@ var ASM_CONSTS = {
       SDL2.audio.silenceTimer = setInterval(silence_callback, ($1 / SDL2.audioContext.sampleRate) * 1e3);
     }
   },
-  494722: ($0, $1) => {
+  496002: ($0, $1) => {
     var SDL2 = Module["SDL2"];
     var numChannels = SDL2.capture.currentCaptureBuffer.numberOfChannels;
     for (var c = 0; c < numChannels; ++c) {
@@ -10710,7 +10710,7 @@ var ASM_CONSTS = {
       }
     }
   },
-  495327: ($0, $1) => {
+  496607: ($0, $1) => {
     var SDL2 = Module["SDL2"];
     var buf = $0 >>> 2;
     var numChannels = SDL2.audio.currentOutputBuffer["numberOfChannels"];
@@ -10724,7 +10724,7 @@ var ASM_CONSTS = {
       }
     }
   },
-  495816: $0 => {
+  497096: $0 => {
     var SDL2 = Module["SDL2"];
     if ($0) {
       if (SDL2.capture.silenceTimer !== undefined) {
@@ -10758,12 +10758,12 @@ var ASM_CONSTS = {
       SDL2.audioContext = undefined;
     }
   },
-  496822: ($0, $1) => {
+  498102: ($0, $1) => {
     alert(UTF8ToString($0) + "\n\n" + UTF8ToString($1));
   },
-  496879: () => window.innerWidth,
-  496909: () => window.innerHeight,
-  496940: ($0, $1, $2) => {
+  498159: () => window.innerWidth,
+  498189: () => window.innerHeight,
+  498220: ($0, $1, $2) => {
     var w = $0;
     var h = $1;
     var pixels = $2;
@@ -10834,7 +10834,7 @@ var ASM_CONSTS = {
     }
     SDL2.ctx.putImageData(SDL2.image, 0, 0);
   },
-  498406: ($0, $1, $2, $3, $4) => {
+  499686: ($0, $1, $2, $3, $4) => {
     var w = $0;
     var h = $1;
     var hot_x = $2;
@@ -10871,12 +10871,12 @@ var ASM_CONSTS = {
     stringToUTF8(url, urlBuf, url.length + 1);
     return urlBuf;
   },
-  499394: $0 => {
+  500674: $0 => {
     if (Module["canvas"]) {
       Module["canvas"].style["cursor"] = UTF8ToString($0);
     }
   },
-  499477: () => {
+  500757: () => {
     if (Module["canvas"]) {
       Module["canvas"].style["cursor"] = "none";
     }
@@ -10897,6 +10897,10 @@ var _diagScheduledCount = Module["_diagScheduledCount"] = makeInvalidEarlyAccess
 var _diagTimerCount = Module["_diagTimerCount"] = makeInvalidEarlyAccess("_diagTimerCount");
 
 var _diagDumpThreads = Module["_diagDumpThreads"] = makeInvalidEarlyAccess("_diagDumpThreads");
+
+var _diagDumpWindows = Module["_diagDumpWindows"] = makeInvalidEarlyAccess("_diagDumpWindows");
+
+var _diagDumpWindowLine = Module["_diagDumpWindowLine"] = makeInvalidEarlyAccess("_diagDumpWindowLine");
 
 var _emscripten_stack_get_end = makeInvalidEarlyAccess("_emscripten_stack_get_end");
 
@@ -10968,6 +10972,8 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports["diagScheduledCount"] != "undefined", "missing Wasm export: diagScheduledCount");
   assert(typeof wasmExports["diagTimerCount"] != "undefined", "missing Wasm export: diagTimerCount");
   assert(typeof wasmExports["diagDumpThreads"] != "undefined", "missing Wasm export: diagDumpThreads");
+  assert(typeof wasmExports["diagDumpWindows"] != "undefined", "missing Wasm export: diagDumpWindows");
+  assert(typeof wasmExports["diagDumpWindowLine"] != "undefined", "missing Wasm export: diagDumpWindowLine");
   assert(typeof wasmExports["emscripten_stack_get_end"] != "undefined", "missing Wasm export: emscripten_stack_get_end");
   assert(typeof wasmExports["emscripten_stack_get_base"] != "undefined", "missing Wasm export: emscripten_stack_get_base");
   assert(typeof wasmExports["diagPutBitsTotal"] != "undefined", "missing Wasm export: diagPutBitsTotal");
@@ -11004,6 +11010,8 @@ function assignWasmExports(wasmExports) {
   _diagScheduledCount = Module["_diagScheduledCount"] = createExportWrapper("diagScheduledCount", 0);
   _diagTimerCount = Module["_diagTimerCount"] = createExportWrapper("diagTimerCount", 0);
   _diagDumpThreads = Module["_diagDumpThreads"] = createExportWrapper("diagDumpThreads", 0);
+  _diagDumpWindows = Module["_diagDumpWindows"] = createExportWrapper("diagDumpWindows", 0);
+  _diagDumpWindowLine = Module["_diagDumpWindowLine"] = createExportWrapper("diagDumpWindowLine", 3);
   _emscripten_stack_get_end = wasmExports["emscripten_stack_get_end"];
   _emscripten_stack_get_base = wasmExports["emscripten_stack_get_base"];
   _diagPutBitsTotal = Module["_diagPutBitsTotal"] = createExportWrapper("diagPutBitsTotal", 0);

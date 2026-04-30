@@ -362,8 +362,42 @@ void XServer::initClipboard() {
 	});
 }
 
+// Send a synthetic Expose event to all mapped top-level windows. SDL2 games
+// (AGS Software, Allegro 5) gate their main loop on receiving X11 events and
+// will sit idle if our X server never delivers any. Plan Road A0: a periodic
+// nudge keeps WM_PAINT flowing through Wine's X11 driver and prevents the
+// "guest never pushes another frame" stall.
+void XServer::nudgeExpose() {
+	if (!root) {
+		return;
+	}
+	root->iterateMappedChildrenBackToFront([this](const XWindowPtr& child) {
+		if (child->c_class == InputOutput) {
+			iterateEventMask(child->id, ExposureMask, [&](const DisplayDataPtr& data) {
+				child->exposeNofity(data, 0, 0, child->width(), child->height(), 0);
+			});
+		}
+		return true;
+	});
+}
+
 void XServer::draw(bool drawNow) {
 	static U32 lastDraw;
+	static U32 lastExposeNudge;
+
+	// Periodic Expose nudge — once per ~16 ms (~60 Hz) — to wake up SDL2 game
+	// loops that gate rendering on X11 events. Cheap (just queues a few
+	// events) and cannot create busy-loops because guests still drive their
+	// own framerate. Without this, AGS Software games sit idle after their
+	// first paint because boxedwine's X server otherwise never delivers
+	// motion/expose events.
+	{
+		U32 now = KSystem::getMilliesSinceStart();
+		if (now - lastExposeNudge >= 16) {
+			lastExposeNudge = now;
+			nudgeExpose();
+		}
+	}
 
 	if (!isDisplayDirty || !root) {
 		return;

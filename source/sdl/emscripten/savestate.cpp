@@ -30,6 +30,11 @@
 #ifndef BOXEDWINE_MULTI_THREADED
 
 #include <cstring>
+#include <cstdio>
+#include <functional>
+#include "../../x11/x11.h"
+#include "../../x11/xserver.h"
+#include "../../x11/xwindow.h"
 
 // emscripten stack API — provided by the emscripten runtime
 extern "C" {
@@ -392,6 +397,79 @@ U32 diagTimerCount() { return 0; }
 EMSCRIPTEN_KEEPALIVE
 void diagDumpThreads() {
     KSystem::dumpAllThreads();
+}
+
+// Dump the X server's window tree to klog. Shows id, size, depth, bpp,
+// bytes-per-line, and whether each window is mapped — useful for finding
+// hidden child windows that the visible top-level isn't routing pixels to.
+EMSCRIPTEN_KEEPALIVE
+void diagDumpWindows() {
+    XServer* server = XServer::getServer(true);
+    if (!server) {
+        klog("[xwin] no server");
+        return;
+    }
+    XWindowPtr root = server->getRoot();
+    if (!root) {
+        klog("[xwin] no root");
+        return;
+    }
+    int total = 0;
+    std::function<void(const XWindowPtr&, int)> walk = [&](const XWindowPtr& w, int depthLevel) {
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+                 "[xwin] depth=%d id=%08x %s %s size=%dx%d xdepth=%d bpp=%u bpl=%u dirty=%d",
+                 depthLevel,
+                 (unsigned)w->id,
+                 w->mapped() ? "MAP" : "   ",
+                 w->c_class == InputOutput ? "I/O" : "I-O",
+                 (int)w->width(), (int)w->height(),
+                 (int)w->getDepth(),
+                 (unsigned)w->getBitsPerPixel(),
+                 (unsigned)w->getBytesPerLine(),
+                 w->isDirty ? 1 : 0);
+        klog(buf);
+        total++;
+        w->iterateMappedChildrenBackToFront([&](const XWindowPtr& child) {
+            walk(child, depthLevel + 1);
+            return true;
+        });
+    };
+    walk(root, 0);
+    char summary[64];
+    snprintf(summary, sizeof(summary), "[xwin] total walked=%d", total);
+    klog(summary);
+}
+
+// Sample N pixels from the X window's buffer at given y (line scan).
+// Outputs hex words to klog. Used to verify what the guest actually wrote.
+EMSCRIPTEN_KEEPALIVE
+void diagDumpWindowLine(unsigned int wndId, unsigned int y, unsigned int count) {
+    XServer* server = XServer::getServer(true);
+    if (!server) { klog("[xwin] no server"); return; }
+    XWindowPtr w = server->getWindow(wndId);
+    if (!w) { klog("[xwin] window not found"); return; }
+    w->lockData();
+    U8* data = w->getData();
+    U32 bpl = w->getBytesPerLine();
+    U32 height = w->height();
+    if (!data || y >= height) { w->unlockData(); klog("[xwin] no data or y out of range"); return; }
+    U8* line = data + bpl * y;
+    char header[64];
+    snprintf(header, sizeof(header), "[xwin] line y=%u bpl=%u (first %u px):", y, (unsigned)bpl, count);
+    klog(header);
+    U32 sampleBytes = count * 4;
+    if (sampleBytes > bpl) sampleBytes = bpl;
+    char buf[1024];
+    int off = 0;
+    off += snprintf(buf, sizeof(buf), "[xwin]");
+    for (U32 i = 0; i < sampleBytes; i += 4) {
+        U32 px = ((U32)line[i+3]<<24) | ((U32)line[i+2]<<16) | ((U32)line[i+1]<<8) | line[i];
+        if ((U32)off + 10 >= sizeof(buf)) break;
+        off += snprintf(buf + off, sizeof(buf) - off, " %08x", px);
+    }
+    klog(buf);
+    w->unlockData();
 }
 
 } // extern "C"
