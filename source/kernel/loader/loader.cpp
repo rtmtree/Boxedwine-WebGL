@@ -268,8 +268,23 @@ bool ElfLoader::loadProgram(KThread* thread, FsOpenNode* openNode, U32* eip) {
     if (len!=sizeof(buffer)) {
         return false;
     }
+
+    // 64-bit-guest detection (PLAN_BOXEDWINE_64BIT.md Phase A3+).
+    // We peek the magic + class fields before the strict ELF32 check
+    // so an x86_64 ELF gets a clear, distinct refusal instead of the
+    // generic "not a valid elf" path. Real 64-bit loading happens in
+    // a separate ElfLoader64::loadProgram (Phase B); for now we flag
+    // and refuse so callers know exactly why they failed.
+    if (len >= 20 && isElf64ForX8664(hdr->e_ident, ((struct k_Elf64_Ehdr*)hdr)->e_machine)) {
+        klog_fmt("ElfLoader: ELF64 x86_64 binary detected — 64-bit guest path not yet implemented (PLAN_BOXEDWINE_64BIT.md Phase B). Refusing to load.");
+        // Reset file pointer so caller can decide what to do (e.g. error
+        // out gracefully rather than crashing in the 32-bit decoder).
+        openNode->seek(0);
+        return false;
+    }
+
     if (!isValidElf(hdr))
-        return false;    
+        return false;
     len=0;
     openNode->seek(hdr->e_phoff);	
     for (U32 i=0;i<hdr->e_phnum;i++) {
