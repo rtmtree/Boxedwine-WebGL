@@ -10554,18 +10554,18 @@ function checkIncomingModuleAPI() {
 }
 
 var ASM_CONSTS = {
-  492108: () => {},
-  492109: () => HEAPU8.length,
-  492135: () => {
+  492060: () => {},
+  492061: () => HEAPU8.length,
+  492087: () => {
     window.__boxedwineSaveBegin && window.__boxedwineSaveBegin();
   },
-  492201: ($0, $1) => {
+  492153: ($0, $1) => {
     window.__boxedwineSaveChunk && window.__boxedwineSaveChunk($0, $1);
   },
-  492273: () => (window.__boxedwineSaveEnd && window.__boxedwineSaveEnd()) ? 1 : 0,
-  492352: () => HEAPU8.length,
-  492378: ($0, $1) => (window.__boxedwineLoadRead && window.__boxedwineLoadRead($0, $1)) || 0,
-  492462: $0 => {
+  492225: () => (window.__boxedwineSaveEnd && window.__boxedwineSaveEnd()) ? 1 : 0,
+  492304: () => HEAPU8.length,
+  492330: ($0, $1) => (window.__boxedwineLoadRead && window.__boxedwineLoadRead($0, $1)) || 0,
+  492414: $0 => {
     var str = UTF8ToString($0) + "\n\n" + "Abort/Retry/Ignore/AlwaysIgnore? [ariA] :";
     var reply = window.prompt(str, "i");
     if (reply === null) {
@@ -10573,7 +10573,7 @@ var ASM_CONSTS = {
     }
     return reply.length === 1 ? reply.charCodeAt(0) : -1;
   },
-  492677: () => {
+  492629: () => {
     if (typeof (AudioContext) !== "undefined") {
       return true;
     } else if (typeof (webkitAudioContext) !== "undefined") {
@@ -10581,7 +10581,7 @@ var ASM_CONSTS = {
     }
     return false;
   },
-  492824: () => {
+  492776: () => {
     if ((typeof (navigator.mediaDevices) !== "undefined") && (typeof (navigator.mediaDevices.getUserMedia) !== "undefined")) {
       return true;
     } else if (typeof (navigator.webkitGetUserMedia) !== "undefined") {
@@ -10589,7 +10589,7 @@ var ASM_CONSTS = {
     }
     return false;
   },
-  493058: $0 => {
+  493010: $0 => {
     if (typeof (Module["SDL2"]) === "undefined") {
       Module["SDL2"] = {};
     }
@@ -10613,11 +10613,11 @@ var ASM_CONSTS = {
     }
     return SDL2.audioContext === undefined ? -1 : 0;
   },
-  493610: () => {
+  493562: () => {
     var SDL2 = Module["SDL2"];
     return SDL2.audioContext.sampleRate;
   },
-  493678: ($0, $1, $2, $3) => {
+  493630: ($0, $1, $2, $3) => {
     var SDL2 = Module["SDL2"];
     var have_microphone = function(stream) {
       if (SDL2.capture.silenceTimer !== undefined) {
@@ -10659,7 +10659,7 @@ var ASM_CONSTS = {
       }, have_microphone, no_microphone);
     }
   },
-  495371: ($0, $1, $2, $3) => {
+  495323: ($0, $1, $2, $3) => {
     var SDL2 = Module["SDL2"];
     SDL2.audio.scriptProcessorNode = SDL2.audioContext["createScriptProcessor"]($1, 0, $0);
     SDL2.audio.scriptProcessorNode["onaudioprocess"] = function(e) {
@@ -10691,7 +10691,7 @@ var ASM_CONSTS = {
       SDL2.audio.silenceTimer = setInterval(silence_callback, ($1 / SDL2.audioContext.sampleRate) * 1e3);
     }
   },
-  496546: ($0, $1) => {
+  496498: ($0, $1) => {
     var SDL2 = Module["SDL2"];
     var numChannels = SDL2.capture.currentCaptureBuffer.numberOfChannels;
     for (var c = 0; c < numChannels; ++c) {
@@ -10710,7 +10710,7 @@ var ASM_CONSTS = {
       }
     }
   },
-  497151: ($0, $1) => {
+  497103: ($0, $1) => {
     var SDL2 = Module["SDL2"];
     var buf = $0 >>> 2;
     var numChannels = SDL2.audio.currentOutputBuffer["numberOfChannels"];
@@ -10724,7 +10724,7 @@ var ASM_CONSTS = {
       }
     }
   },
-  497640: $0 => {
+  497592: $0 => {
     var SDL2 = Module["SDL2"];
     if ($0) {
       if (SDL2.capture.silenceTimer !== undefined) {
@@ -10758,12 +10758,12 @@ var ASM_CONSTS = {
       SDL2.audioContext = undefined;
     }
   },
-  498646: ($0, $1) => {
+  498598: ($0, $1) => {
     alert(UTF8ToString($0) + "\n\n" + UTF8ToString($1));
   },
-  498703: () => window.innerWidth,
-  498733: () => window.innerHeight,
-  498764: ($0, $1, $2) => {
+  498655: () => window.innerWidth,
+  498685: () => window.innerHeight,
+  498716: ($0, $1, $2) => {
     var w = $0;
     var h = $1;
     var pixels = $2;
@@ -10834,7 +10834,7 @@ var ASM_CONSTS = {
     }
     SDL2.ctx.putImageData(SDL2.image, 0, 0);
   },
-  500230: ($0, $1, $2, $3, $4) => {
+  500182: ($0, $1, $2, $3, $4) => {
     var w = $0;
     var h = $1;
     var hot_x = $2;
@@ -10871,12 +10871,12 @@ var ASM_CONSTS = {
     stringToUTF8(url, urlBuf, url.length + 1);
     return urlBuf;
   },
-  501218: $0 => {
+  501170: $0 => {
     if (Module["canvas"]) {
       Module["canvas"].style["cursor"] = UTF8ToString($0);
     }
   },
-  501301: () => {
+  501253: () => {
     if (Module["canvas"]) {
       Module["canvas"].style["cursor"] = "none";
     }

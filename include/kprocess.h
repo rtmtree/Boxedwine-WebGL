@@ -275,6 +275,8 @@ public:
     U32 glStringsiExtensions = 0;
     std::vector<U32> glStringsiExtensionsOffset;
     U32 glxStringExtensions = 0;
+    U32 glxStringServer = 0;
+    U32 glxStringClient = 0;
     U32 numberOfExtensions = 0;
 #ifdef BOXEDWINE_JIT
     OpCallback startJITOp = nullptr;

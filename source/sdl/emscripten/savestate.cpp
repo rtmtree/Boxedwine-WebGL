@@ -487,6 +487,8 @@ EMSCRIPTEN_KEEPALIVE void requestLoadState() {}
 EMSCRIPTEN_KEEPALIVE unsigned int diagScheduledCount() { return 0; }
 EMSCRIPTEN_KEEPALIVE unsigned int diagTimerCount() { return 0; }
 EMSCRIPTEN_KEEPALIVE void diagDumpThreads() { KSystem::dumpAllThreads(); }
+EMSCRIPTEN_KEEPALIVE void diagDumpWindows() {}
+EMSCRIPTEN_KEEPALIVE void diagDumpWindowLine(unsigned int, unsigned int, unsigned int) {}
 }
 
 #endif // BOXEDWINE_MULTI_THREADED

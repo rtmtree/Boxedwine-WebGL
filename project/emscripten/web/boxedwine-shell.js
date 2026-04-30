@@ -239,6 +239,25 @@
         let ROOT = "/root";
         let STORAGE_INDEXED_DB = "INDEXED_DB";
         let STORAGE_MEMORY = "MEMORY";
+        
+        // Server-side logging: sends messages to the dev server's console
+        // so we can see browser output from the CLI. Only active with ?debug=1.
+        var _serverLogQueue = [];
+        var _serverLogTimer = null;
+        function serverLog(msg) {
+            if (!/[?&]debug=1\b/.test(location.search)) return;
+            _serverLogQueue.push(msg);
+            if (!_serverLogTimer) {
+                _serverLogTimer = setTimeout(function(){
+                    var batch = _serverLogQueue.join('\n');
+                    _serverLogQueue = [];
+                    _serverLogTimer = null;
+                    try {
+                        fetch('/log', {method:'PUT', body:batch, headers:{'Content-Type':'text/plain'}}).catch(function(){});
+                    } catch(e){}
+                }, 500);
+            }
+        }
 
         let DEFAULT_AUTO_RUN = true;
         let DEFAULT_LOAD_DESKTOP = false;
@@ -302,13 +321,35 @@
             // ("wine: cannot find L\"/home/...\"") but DOES find the exe in
             // cwd when given just the name.
             if (Config.Program.length > 0 && Config.Program.charAt(0) === '/' &&
-                Config.WorkingDir.length === 0 && Config.appZipFile.length === 0 &&
-                Config.appPayload.length === 0) {
+                Config.WorkingDir.length === 0) {
                 var lastSlash = Config.Program.lastIndexOf('/');
                 if (lastSlash > 0) {
                     Config.WorkingDir = Config.Program.substring(0, lastSlash);
                     Config.Program = Config.Program.substring(lastSlash + 1);
                     console.log("Auto-split absolute program: cwd=" + Config.WorkingDir + " exe=" + Config.Program);
+                }
+            }
+
+            // The stock Wine 6.0 prefix in boxedwine.zip ships incomplete
+            // avrt.dll / dinput8.dll stubs and no libGL.so.1 — anything beyond
+            // the bundled Diablo build needs the missingdlls overlay (see
+            // commit 76482029). Default it on whenever a user-supplied
+            // program is set so a bare ?p=/home/.../foo.exe URL just works
+            // without requiring users to also remember &overlay=missingdlls.
+            // The bundled Diablo path doesn't need it (its DLLs are complete)
+            // but the overlay is harmless there too — Wine prefers the prefix
+            // copies when they're present.
+            if (Config.Program.length > 0 &&
+                Config.extraPayload.length === 0) {
+                // Always ensure missingdlls.zip is present (provides avrt.dll,
+                // dinput8.dll, libGL.so.1 etc.).  If the user already listed it
+                // via ?overlay=... that's fine — duplicates are harmless.
+                var hasMissing = Config.extraZipFiles.some(function(z){
+                    return z.toLowerCase() === 'missingdlls.zip';
+                });
+                if (!hasMissing) {
+                    Config.extraZipFiles.push("missingdlls.zip");
+                    console.log("Auto-attached missingdlls.zip overlay");
                 }
             }
 
@@ -793,6 +834,7 @@
         }
         function startEmulator() {
             isRunning = true;
+            serverLog("startEmulator: Program=" + Config.Program + " WorkingDir=" + Config.WorkingDir + " appZip=" + Config.appZipFile + " overlays=" + Config.extraZipFiles.join(','));
 
             document.getElementById('startbtn').style.display = 'none';
             document.getElementById('sound-checkbox').style.display = 'none';
@@ -1039,8 +1081,14 @@
             //
             // GL-based games (Godot, Unity) explicitly DO want a hardware
             // context though — boxedwine's opengl32.dll.so + libGL.so.1
-            // route GL via int 0x99 → WebGL. Opt out with `?gl=1`.
-            if (!/[?&]gl=1\b/i.test(window.location.search || '')) {
+            // route GL via int 0x99 → WebGL. Opt out with `?gl=1`. Known
+            // GL games are auto-detected (currently: 4HGame.exe — Godot
+            // 3.5.2) so a bare ?p=/home/.../4HGame.exe URL renders without
+            // the user having to remember &gl=1.
+            var __glOptIn = /[?&]gl=1\b/i.test(window.location.search || '');
+            var __progLower = (Config.Program || '').toLowerCase();
+            var __isGlGame = /4hgame\.exe$/.test(__progLower);
+            if (!__glOptIn && !__isGlGame) {
                 params.push("-env");
                 params.push('SDL_RENDER_DRIVER=software');
             }
@@ -1094,6 +1142,12 @@
                 // Spaces inside an arg can be encoded as %20. Useful for
                 // passing things like Godot's --position / --resolution
                 // / --fullscreen, AGS's --filter=stdscale, etc.
+                //
+                // For known Godot games (4HGame), if the user hasn't
+                // supplied their own args= we push the position/resolution
+                // flags Godot needs so the window doesn't centre off the
+                // 640x480 emulator desktop and the in-game viewport
+                // matches what the canvas can show.
                 (function(){
                     var s = (window.location.search || '');
                     var m = /[?&]args=([^&]+)/i.exec(s);
@@ -1107,6 +1161,12 @@
                             a = a.trim();
                             if (a.length) params.push(a);
                         });
+                        return;
+                    }
+                    if (__isGlGame) {
+                        ['--position', '0,0',
+                         '--resolution', '640x400']
+                            .forEach(function(a){ params.push(a); });
                     }
                 })();
             }else{
@@ -1114,6 +1174,7 @@
     	        params.push("/desktop=shell");
             }
             console.log("Emulator params:" + params);
+            serverLog("Emulator params:" + params.join(' '));
             return params;
         }
       var Module = {
@@ -1131,6 +1192,7 @@
             //text = text.replace(/>/g, "&gt;");
             //text = text.replace('\n', '<br>', 'g');
             console.log(text);
+            serverLog("wine: " + text);
             if (element) {
               element.value += text + "\n";
               element.scrollTop = element.scrollHeight; // focus on bottom
@@ -1139,6 +1201,7 @@
         })(),
         printErr: function(text) {
           text = Array.prototype.slice.call(arguments).join(' ');
+          serverLog("wine-err: " + text);
           if (0) { // XXX disabled for safety typeof dump == 'function') {
             dump(text + '\n'); // fast, straight to the real console
           } else {

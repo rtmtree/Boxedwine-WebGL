@@ -25,3 +25,35 @@ The game will contain text like BEGIN and EXIT
 If those 2 buttons cant be found on the canvas, keep hammering
 
 FYI, the original boxedwine is designed for very old gen game. but lighthouse is modern game.
+
+
+
+let's start to make it support 64 bit by following the plan
+
+
+
+* keep boxedwine exprience (fast loading speed)
+
+* dont use QEMU if that mean slow loading.i  put 64 bit game in the zip for u
+
+
+
+try here
+
+http://localhost:8083/boxedwine.html?app=boxedwine&p=%2Fhome%2Fusername%2F4HGame.exe&sound=false&cpu=p3&cnc=1&dmt=false&open_in_browser=
+
+
+
+let's start to make it support 64 bit by following the ./PLAN_BOXEDWINE_64BIT.md
+
+* keep boxedwine exprience (fast loading speed)
+
+I put 64 bit game in the zip for u
+
+try here
+http://localhost:8083/boxedwine.html?app=boxedwine&p=%2Fhome%2Fusername%2F4HGame.exe&sound=false&cpu=p3&cnc=1&dmt=false&open_in_browser=1.  
+keep working until the game render on that page
+if there is any option you want me to choose, just pick the one you see fit and go forward.
+
+
+

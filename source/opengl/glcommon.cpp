@@ -883,12 +883,15 @@ void gl_common_XIsDirect(CPU* cpu) {
 
 // GLXContext glXGetCurrentContext(void)
 void gl_common_XGetCurrentContext(CPU* cpu) {
-    kpanic("glXGetCurrentContext");
+    KThread* thread = cpu->thread;
+    EAX = thread->currentContext;
 }
 
 // GLXDrawable glXGetCurrentDrawable(void)
 void gl_common_XGetCurrentDrawable(CPU* cpu) {
-    kpanic("glXGetCurrentDrawable");
+    // We don't track the per-thread current drawable; returning 0 (None) is
+    // safe for Godot/Unity/SDL2 callers that just guard with `if (drawable)`.
+    EAX = 0;
 }
 
 // const char* glXQueryExtensionsString(Display* dpy, int screen)
@@ -906,12 +909,27 @@ void gl_common_XQueryExtensionsString(CPU* cpu) {
 
 // const char* glXQueryServerString(Display* dpy, int screen, int name)
 void gl_common_XQueryServerString(CPU* cpu) {
-    kpanic("glXQueryServerString");
+    // Return a process-cached empty C-string instead of NULL or a panic.
+    // Callers (Godot/Unity) sometimes pass the returned pointer to strstr()
+    // without a NULL check, so we need a real guest-readable byte.
+    KThread* thread = cpu->thread;
+    if (!thread->process->glxStringServer) {
+        thread->process->glxStringServer = thread->process->alloc(thread, 1);
+        U8 zero = 0;
+        thread->memory->memcpy(thread->process->glxStringServer, &zero, 1);
+    }
+    EAX = thread->process->glxStringServer;
 }
 
 // const char* glXGetClientString(Display* dpy, int name)
 void gl_common_XGetClientString(CPU* cpu) {
-    kpanic("glXGetClientString");
+    KThread* thread = cpu->thread;
+    if (!thread->process->glxStringClient) {
+        thread->process->glxStringClient = thread->process->alloc(thread, 1);
+        U8 zero = 0;
+        thread->memory->memcpy(thread->process->glxStringClient, &zero, 1);
+    }
+    EAX = thread->process->glxStringClient;
 }
 
 // GLXFBConfig* glXChooseFBConfig(Display* dpy, int screen, const int* attribList, int* nitems)
@@ -1361,14 +1379,21 @@ void gl_common_XCreateContextAttribsARB(CPU* cpu) {
 
 // void glXSwapIntervalEXT(Display* dpy, GLXDrawable drawable, int interval)
 void gl_common_XSwapIntervalEXT(CPU* cpu) {
-    kpanic("glXSwapIntervalEXT");
+    // No-op. WebGL driver controls vsync — we can't change it from the
+    // guest. Panicking here killed the emulator the moment Godot's
+    // GLES2 backend asked for adaptive vsync.
 }
 
-// void glXSwapBuffers(Display* dpy, GLXDrawable drawable) 
+// void glXSwapBuffers(Display* dpy, GLXDrawable drawable)
 void gl_common_XSwapBuffers(CPU* cpu) {
     KThread* thread = cpu->thread;
     XServer* server = XServer::getServer();
     XDrawablePtr d = server->getDrawable(ARG2);
+    static U32 swapCount = 0;
+    if (swapCount < 5) {
+        klog_fmt("[gl] XSwapBuffers drawable=%u (call #%u)", (unsigned)ARG2, (unsigned)swapCount + 1);
+    }
+    swapCount++;
     if (!d) {
         EAX = BadDrawable;
         return;
