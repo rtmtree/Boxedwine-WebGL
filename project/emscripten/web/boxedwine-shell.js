@@ -1012,6 +1012,18 @@
             // `name=` (empty value) means "do not load this DLL".
             params.push("-env");
             params.push('WINEDLLOVERRIDES=msctf=');
+            // Force SDL2 to use the software renderer. Without this hint SDL2
+            // tries d3d9 / d3d11 first; both fail in our wasm wine (no real
+            // GPU drivers in the prefix) and the fallback path can leave
+            // SDL2's RenderTarget in a bad state — the AGS Lighthouse main
+            // menu renders as 5 thin Win32-themed bars instead of the actual
+            // BEGIN/EXIT GUI when this hint is missing.
+            params.push("-env");
+            params.push('SDL_RENDER_DRIVER=software');
+            // Don't let SDL2 grab the keyboard / disable WM hooks; some of
+            // those probes block on X events that boxedwine never delivers.
+            params.push("-env");
+            params.push('SDL_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR=0');
 
 			if (!Config.loadDesktop) {
             	if(Config.WorkingDir.length > 0){
