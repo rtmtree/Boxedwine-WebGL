@@ -996,10 +996,12 @@
             // When the user disables sound on the boxedwine side, also point
             // any bundled SDL2 game (AGS, Unity, ...) at the dummy audio
             // driver so SDL_OpenAudioDevice doesn't block waiting for a real
-            // device that won't appear.
+            // device that won't appear. Match the bare KEY=VALUE format that
+            // boxedwine's -env parser expects (no surrounding quotes — those
+            // would become part of the env var name and value).
             if (!Config.isSoundEnabled) {
                 params.push("-env");
-                params.push('"SDL_AUDIODRIVER=dummy"');
+                params.push('SDL_AUDIODRIVER=dummy');
             }
 
 			if (!Config.loadDesktop) {
