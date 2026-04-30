@@ -1030,14 +1030,20 @@
             // marks avrt as builtin internally.
             params.push("-env");
             params.push('WINEDLLOVERRIDES=msctf=;avrt=n,b;dinput8=n,b');
-            // Force SDL2 to use the software renderer. Without this hint SDL2
-            // tries d3d9 / d3d11 first; both fail in our wasm wine (no real
-            // GPU drivers in the prefix) and the fallback path can leave
-            // SDL2's RenderTarget in a bad state — the AGS Lighthouse main
-            // menu renders as 5 thin Win32-themed bars instead of the actual
-            // BEGIN/EXIT GUI when this hint is missing.
-            params.push("-env");
-            params.push('SDL_RENDER_DRIVER=software');
+            // Force SDL2 to use the software renderer (default). Without this
+            // hint SDL2 tries d3d9 / d3d11 first; both fail in our wasm wine
+            // (no real GPU drivers in the prefix) and the fallback path can
+            // leave SDL2's RenderTarget in a bad state — the AGS Lighthouse
+            // main menu renders as 5 thin Win32-themed bars instead of the
+            // actual BEGIN/EXIT GUI when this hint is missing.
+            //
+            // GL-based games (Godot, Unity) explicitly DO want a hardware
+            // context though — boxedwine's opengl32.dll.so + libGL.so.1
+            // route GL via int 0x99 → WebGL. Opt out with `?gl=1`.
+            if (!/[?&]gl=1\b/i.test(window.location.search || '')) {
+                params.push("-env");
+                params.push('SDL_RENDER_DRIVER=software');
+            }
             // Don't let SDL2 grab the keyboard / disable WM hooks; some of
             // those probes block on X events that boxedwine never delivers.
             params.push("-env");
@@ -1084,6 +1090,25 @@
                     params.push("/c");
                 }
                 params.push(Config.Program);
+                // ?args=foo+bar+baz adds extra args to the launched .exe.
+                // Spaces inside an arg can be encoded as %20. Useful for
+                // passing things like Godot's --position / --resolution
+                // / --fullscreen, AGS's --filter=stdscale, etc.
+                (function(){
+                    var s = (window.location.search || '');
+                    var m = /[?&]args=([^&]+)/i.exec(s);
+                    if (m && m[1]) {
+                        var raw;
+                        try { raw = decodeURIComponent(m[1]); }
+                        catch (_) { raw = m[1]; }
+                        // Split on '+' first (the URL-friendly separator),
+                        // then trim. An empty token gets dropped.
+                        raw.split('+').forEach(function(a){
+                            a = a.trim();
+                            if (a.length) params.push(a);
+                        });
+                    }
+                })();
             }else{
 	            params.push("explorer");
     	        params.push("/desktop=shell");
