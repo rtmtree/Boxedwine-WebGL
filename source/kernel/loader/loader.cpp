@@ -50,6 +50,34 @@ bool isValidElf(struct k_Elf32_Ehdr* hdr) {
     return true;
 }
 
+// True for any well-formed ELF — 32 *or* 64-bit, little-endian, current
+// version. Used by the future 64-bit-guest path to peek at e_ident[4]
+// (ELFCLASS) before deciding which loader to dispatch to. Keeping this
+// helper next to the 32-bit `isValidElf` keeps the magic-byte check in
+// one place.
+bool isValidElfAnyClass(unsigned char* e_ident) {
+    if (e_ident[0] != 0x7F || e_ident[1] != 'E' || e_ident[2] != 'L' || e_ident[3] != 'F') {
+        return false;
+    }
+    if (e_ident[4] != k_ELFCLASS32 && e_ident[4] != k_ELFCLASS64) {
+        return false;
+    }
+    if (e_ident[5] != 1) {  // little-endian only
+        return false;
+    }
+    return true;
+}
+
+// True if the bytes look like an ELF64 of the right architecture for our
+// 64-bit-guest path (x86_64). Caller passes the first 20 or more bytes of
+// the file. Cheap header-only check; doesn't trust any later field.
+bool isElf64ForX8664(unsigned char* e_ident, U16 e_machine) {
+    if (!isValidElfAnyClass(e_ident)) return false;
+    if (e_ident[4] != k_ELFCLASS64) return false;
+    if (e_machine != k_EM_X86_64) return false;
+    return true;
+}
+
 BString ElfLoader::getInterpreter(FsOpenNode* openNode, bool* isElf) {
     U8 buffer[sizeof(struct k_Elf32_Ehdr)] = { 0 };
     struct k_Elf32_Ehdr* hdr = (struct k_Elf32_Ehdr*)buffer;

@@ -77,4 +77,54 @@ struct k_Elf32_Phdr{
 }
 );
 
+// ---- ELF64 (x86_64) types ---------------------------------------------
+//
+// Used for the 64-bit-guest path (Phase A3 of PLAN_BOXEDWINE_64BIT.md).
+// Always present so detection code can compile in non-64-bit builds; the
+// actual 64-bit loader is gated by BOXEDWINE_64BIT_GUEST in cpu64/.
+
+#define k_Elf64_Addr U64
+#define k_Elf64_Off  U64
+#define k_Elf64_Half U16
+#define k_Elf64_Word U32
+#define k_Elf64_Xword U64
+
+#define k_ELFCLASS32 1
+#define k_ELFCLASS64 2
+
+#define k_EM_386     3
+#define k_EM_X86_64  62
+
+PACKED(
+struct k_Elf64_Ehdr{
+    unsigned char   e_ident[k_EI_NIDENT];
+    k_Elf64_Half    e_type;
+    k_Elf64_Half    e_machine;
+    k_Elf64_Word    e_version;
+    k_Elf64_Addr    e_entry;
+    k_Elf64_Off     e_phoff;
+    k_Elf64_Off     e_shoff;
+    k_Elf64_Word    e_flags;
+    k_Elf64_Half    e_ehsize;
+    k_Elf64_Half    e_phentsize;
+    k_Elf64_Half    e_phnum;
+    k_Elf64_Half    e_shentsize;
+    k_Elf64_Half    e_shnum;
+    k_Elf64_Half    e_shstrndx;
+}
+);
+
+PACKED(
+struct k_Elf64_Phdr{
+    k_Elf64_Word    p_type;
+    k_Elf64_Word    p_flags;     // note: comes before p_offset in 64-bit
+    k_Elf64_Off     p_offset;
+    k_Elf64_Addr    p_vaddr;
+    k_Elf64_Addr    p_paddr;
+    k_Elf64_Xword   p_filesz;
+    k_Elf64_Xword   p_memsz;
+    k_Elf64_Xword   p_align;
+}
+);
+
 #endif
