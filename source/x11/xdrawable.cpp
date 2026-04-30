@@ -94,7 +94,28 @@ int XDrawable::copyImageData(KThread* thread, const std::shared_ptr<XGC>& gc, U3
 	// every Wine XPutImage to a 32bpp window — that's why AGS Software
 	// rendered as black with vertical stripes.
 	if ((U32)bits_per_pixel != getBitsPerPixel()) {
+		klog_fmt("[xdrw] putImage drawable=%x rejected: srcBpp=%d dstBpp=%u (visual.bits_per_rgb=%d depth=%d)",
+		         (U32)id, (S32)bits_per_pixel, (U32)getBitsPerPixel(),
+		         (S32)(visual ? visual->bits_per_rgb : 0), (S32)depth);
 		return BadMatch;
+	}
+	// One-time per-drawable trace — useful to verify Wine is reaching XPutImage
+	// with sane args. Log the first 30 calls.
+	{
+		static thread_local U32 logCount = 0;
+		if (logCount < 30) {
+			logCount++;
+			// Sample first few pixels from source to verify content
+			KMemory* mem = thread->memory;
+			U32 px0 = mem->canRead(data, 4) ? mem->readd(data) : 0xdeadbeef;
+			U32 px1 = mem->canRead(data + 4, 4) ? mem->readd(data + 4) : 0xdeadbeef;
+			U32 px20 = mem->canRead(data + 80, 4) ? mem->readd(data + 80) : 0xdeadbeef;
+			U32 px100 = mem->canRead(data + 400, 4) ? mem->readd(data + 400) : 0xdeadbeef;
+			klog_fmt("[xdrw] putImage drawable=%x bpp=%d bpl=%u src=(%d,%d) dst=(%d,%d) %ux%u px[0]=%08x px[1]=%08x px[20]=%08x px[100]=%08x",
+			         (U32)id, (S32)bits_per_pixel, (U32)bytes_per_line,
+			         src_x, src_y, dst_x, dst_y, width, height,
+			         px0, px1, px20, px100);
+		}
 	}
 	if (gc && (gc->clip_rects.size() || gc->values.clip_mask || gc->values.clip_x_origin || gc->values.clip_y_origin)) {
 		//klog("XDrawable::copyImageData clipping not implemented");
