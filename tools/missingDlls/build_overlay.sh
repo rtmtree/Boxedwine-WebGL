@@ -73,38 +73,66 @@ else:
 PY
 done
 
-echo "=== Pulling i386 Linux GL libraries from Docker ==="
+echo "=== Building libGL.so.1 stub from Mesa symbol list ==="
+# Mesa's libGL has ~3500 gl*/glX* exports. Wine's wgl:init_opengl
+# dlsym's every one and bails on the first miss — so we generate a
+# zero-returning stub for every name. A handful (glGetString,
+# glXCreateContext, ...) get real implementations that satisfy
+# Wine's feature checks.
 mkdir -p "$WORK/usr/lib" "$WORK/lib/i386-linux-gnu" "$WORK/usr/lib/i386-linux-gnu"
-GL_LIBS=(
-    libGL.so.1
-    libGLX.so.0
-    libGLdispatch.so.0
-    libglapi.so.0
-    libGLX_mesa.so.0
-    libdrm.so.2
-    libxshmfence.so.1
-)
 
-# Tar from the container, dereferencing symlinks (-h) so the zip has
-# real files at the well-known names rather than symlink files (which
-# Wine reads as "file too short").
-TARGS=()
-for lib in "${GL_LIBS[@]}"; do
-    TARGS+=("usr/lib/i386-linux-gnu/$lib")
-done
-docker run --rm --platform linux/386 i386/debian:11-slim sh -c "
-    apt-get update -qq 2>/dev/null
-    apt-get install -y libgl1-mesa-glx 2>/dev/null >/dev/null
-    cd /
-    tar -czhf - ${TARGS[@]} 2>/dev/null
-" | tar -xzf - -C "$WORK"
+# Step 1: extract every gl/glX symbol Mesa libGL exports
+docker run --rm --platform linux/386 i386/debian:11-slim sh -c '
+    apt-get -qq update >/dev/null 2>&1
+    apt-get -y install libgl1-mesa-glx binutils 2>/dev/null >/dev/null
+    nm -D /usr/lib/i386-linux-gnu/libGL.so.1 | awk "/ T (gl|glX|_glapi)/ { print \$3 }"
+' > "$WORK/gl_symbols.txt"
 
-# Mirror the Debian-multiarch path's contents to the simpler names
-# Wine and ld.so check first.
-for lib in "${GL_LIBS[@]}"; do
-    cp "$WORK/usr/lib/i386-linux-gnu/$lib" "$WORK/usr/lib/$lib"
-    cp "$WORK/usr/lib/i386-linux-gnu/$lib" "$WORK/lib/i386-linux-gnu/$lib"
-done
+echo "  Mesa exports: $(wc -l < "$WORK/gl_symbols.txt")"
+
+# Step 2: generate the stub C file from libGL_stub.c (hand-written
+# special cases) plus alias-to-zero stubs for everything else.
+python3 - "$WORK/gl_symbols.txt" "$REPO_ROOT/tools/missingDlls/libGL_stub.c" "$WORK/libGL_full.c" <<'PY'
+import sys
+syms_path, hand_path, out_path = sys.argv[1:4]
+with open(syms_path) as f:
+    syms = sorted({s.strip() for s in f if s.strip()})
+SPECIAL = {
+    'glGetString','glGetError','glGetIntegerv','glGetFloatv','glGetBooleanv',
+    'glXGetProcAddress','glXGetProcAddressARB','glXChooseVisual',
+    'glXCreateContext','glXDestroyContext','glXMakeCurrent','glXSwapBuffers',
+    'glXIsDirect','glXGetCurrentContext','glXGetCurrentDrawable',
+    'glXQueryExtension','glXQueryVersion','glXQueryExtensionsString',
+    'glXQueryServerString','glXGetClientString','glXChooseFBConfig',
+    'glXGetVisualFromFBConfig','glXGetFBConfigAttrib',
+    'glXCreateContextAttribsARB','glXSwapIntervalEXT','glXSwapIntervalSGI',
+    'glXSwapIntervalMESA','glXGetSwapIntervalMESA','glXGetVideoSyncSGI',
+    'glXWaitVideoSyncSGI','glXGetCurrentDisplay','glClear','glClearColor',
+    'glViewport','glFlush','glFinish','glEnable','glDisable','glIsEnabled',
+    'glDrawArrays','glDrawElements',
+}
+hand_src = open(hand_path).read()
+with open(out_path,'w') as o:
+    o.write(hand_src)
+    o.write("\n// ---- auto-generated mass stubs ----\n")
+    o.write("static long _stub_zero(void) { return 0; }\n\n")
+    for s in syms:
+        if s in SPECIAL: continue
+        o.write(f'long {s}(void) __attribute__((alias("_stub_zero")));\n')
+PY
+
+# Step 3: cross-compile the stub to an i386 .so
+docker run --rm --platform linux/386 -v "$WORK":/work -w /work \
+        i386/debian:11-slim bash -c '
+    apt-get -qq update >/dev/null 2>&1
+    apt-get -y install gcc 2>/dev/null >/dev/null
+    gcc -m32 -shared -fPIC -Wl,-soname,libGL.so.1 -o libGL.so.1 libGL_full.c 2>&1
+'
+
+# Step 4: stage the stub at the three Linux library paths Wine 6 / ld.so check.
+cp "$WORK/libGL.so.1" "$WORK/usr/lib/libGL.so.1"
+cp "$WORK/libGL.so.1" "$WORK/usr/lib/i386-linux-gnu/libGL.so.1"
+cp "$WORK/libGL.so.1" "$WORK/lib/i386-linux-gnu/libGL.so.1"
 
 echo "=== Building $OUT ==="
 rm -f "$OUT"
