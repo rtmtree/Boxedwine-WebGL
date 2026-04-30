@@ -293,6 +293,25 @@
 			Config.payloadZipFile = "app.zip";
 			Config.d_drive = "/d_drive";
 
+            // Absolute program path (?p="/home/username/foo/bar.exe"): pre-bundled
+            // inside boxedwine.zip. No -mount needed, but we should default the
+            // working dir to the exe's parent so the guest can find sibling
+            // data files (acsetup.cfg, .ags game data, audio.vox, etc.). And
+            // strip the linux dir from the program so wine sees just the exe
+            // name in the current dir — wine won't accept absolute linux paths
+            // ("wine: cannot find L\"/home/...\"") but DOES find the exe in
+            // cwd when given just the name.
+            if (Config.Program.length > 0 && Config.Program.charAt(0) === '/' &&
+                Config.WorkingDir.length === 0 && Config.appZipFile.length === 0 &&
+                Config.appPayload.length === 0) {
+                var lastSlash = Config.Program.lastIndexOf('/');
+                if (lastSlash > 0) {
+                    Config.WorkingDir = Config.Program.substring(0, lastSlash);
+                    Config.Program = Config.Program.substring(lastSlash + 1);
+                    console.log("Auto-split absolute program: cwd=" + Config.WorkingDir + " exe=" + Config.Program);
+                }
+            }
+
             // Allow URLs like ?app=ski32.exe to mean "run ski32.exe from ski32.zip".
             // The raw getAppZipFile turns that into "ski32.exe.zip", which no
             // zip has; split it back into program + matching zip instead.
@@ -974,6 +993,14 @@
                     params.push(ev);
                 });
             }
+            // When the user disables sound on the boxedwine side, also point
+            // any bundled SDL2 game (AGS, Unity, ...) at the dummy audio
+            // driver so SDL_OpenAudioDevice doesn't block waiting for a real
+            // device that won't appear.
+            if (!Config.isSoundEnabled) {
+                params.push("-env");
+                params.push('"SDL_AUDIODRIVER=dummy"');
+            }
 
 			if (!Config.loadDesktop) {
             	if(Config.WorkingDir.length > 0){
@@ -1440,13 +1467,15 @@ function loadStateFromBytes(bytes) {
 })();
 
 // ---- FPS overlay ----
-// Sample diagPutBitsDirty deltas (the emulator's already-exported dirty-blit
-// counter) every 500 ms; that's a close proxy for "frames the guest drew in
-// the last second", which is what the user wants to see. MIPS comes from the
-// existing window title that boxedwine updates every second.
+// Two counters drive this: diagPutBitsTotal (any blit, dirty or cached) for
+// the actual screen update rate the user sees, and diagPutBitsDirty (frames
+// the guest changed) for the "guest is drawing" rate. We show the higher of
+// the two so idle adventure games (AGS post-init: dirty=0/s but cached
+// re-blits at ~60Hz keep the canvas alive) don't read as "FPS 0".
+// MIPS comes from the existing window title that boxedwine updates every second.
 (function(){
     var fpsLine = null, mipsLine = null, overlay = null;
-    var lastT = 0, lastDirty = 0;
+    var lastT = 0, lastDirty = 0, lastTotal = 0;
     var ema = 0;
     function sample() {
         if (!overlay) {
@@ -1461,24 +1490,29 @@ function loadStateFromBytes(bytes) {
             overlay.style.display = 'none';
             return;
         }
-        if (!window.Module || !Module.calledRun || !Module._diagPutBitsDirty) {
+        if (!window.Module || !Module.calledRun || !Module._diagPutBitsDirty || !Module._diagPutBitsTotal) {
             overlay.style.display = 'none';
             return;
         }
         overlay.style.display = 'block';
-        var d;
-        try { d = Module._diagPutBitsDirty(); } catch(e) { return; }
+        var d, t;
+        try { d = Module._diagPutBitsDirty(); t = Module._diagPutBitsTotal(); } catch(e) { return; }
         var now = performance.now();
         if (lastT) {
             var dtMs = now - lastT;
-            var fps = ((d - lastDirty) * 1000) / dtMs;
-            if (!isFinite(fps) || fps < 0) fps = 0;
-            // EMA to smooth
+            var fpsDirty = ((d - lastDirty) * 1000) / dtMs;
+            var fpsTotal = ((t - lastTotal) * 1000) / dtMs;
+            if (!isFinite(fpsDirty) || fpsDirty < 0) fpsDirty = 0;
+            if (!isFinite(fpsTotal) || fpsTotal < 0) fpsTotal = 0;
+            // Show whichever is higher: actual guest draw rate when active,
+            // emscripten RAF rate when idle.
+            var fps = Math.max(fpsDirty, fpsTotal);
             ema = ema ? (ema * 0.6 + fps * 0.4) : fps;
             fpsLine.textContent = 'FPS: ' + ema.toFixed(1);
         }
         lastT = now;
         lastDirty = d;
+        lastTotal = t;
         // Pull MIPS out of the document title ("BoxedWine NNN MIPS")
         var m = (document.title || '').match(/(\d+)\s*MIPS/);
         if (m && mipsLine) mipsLine.textContent = 'MIPS: ' + m[1];
