@@ -6,6 +6,22 @@ please keep working until the FPS is increased significantly
 
 keep working and if there is any option you want me to choose, just pick the one you see fit and go forward.
 
-
-
 assume i will not respond for 8 hours
+
+
+I'm going to sleep now. assume i will not respond for 8 hours.
+
+
+Do according to the plan-upgrade-modern.md or find more ways.
+keep working and if there is any option you want me to choose, just pick the one you see fit and go forward.
+
+I've put example game in the boxedwine.zip default one.
+fyi, You can get the game running with this path boxedwine.html?app=boxedwine&p=/home/username/lighthouse_name/lighthouse_name/AGS.exe&sound=false&cpu=p3&cnc=1&dmt=false
+
+
+verify when you can render that game menu on preview.
+The game will contain text like BEGIN and EXIT
+
+If those 2 buttons cant be found on the canvas, keep hammering
+
+FYI, the original boxedwine is designed for very old gen game. but lighthouse is modern game.

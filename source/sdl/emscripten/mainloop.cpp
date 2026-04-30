@@ -20,6 +20,7 @@
 #include <emscripten/emscripten.h>
 #include "boxedwine.h"
 #include "knativesystem.h"
+#include "../../x11/x11.h"
 
 #ifdef BOXEDWINE_MULTI_THREADED
 #include "knativethread.h"
@@ -96,6 +97,26 @@ void mainloop() {
     U32 t;
     U32 count=0;
     BString mipsTitle;
+
+    // Force a redraw once per emscripten frame so games whose render
+    // loops emit XPutImage at lower frequency than runSlice samples
+    // (AGS Software path under Wine, Basstour popup) still get re-blitted
+    // per requestAnimationFrame tick. The drawNow=true argument bypasses
+    // the 16ms throttle so we always blit; emscripten's RAF already caps
+    // us at the display's refresh rate. The present() that follows
+    // breaks us out of the inner runSlice loop promptly. Without this,
+    // a guest main thread that's sleeping on a futex while waiting for
+    // SDL events keeps the canvas frozen.
+    {
+        XServer* server = XServer::getServer(true);
+        if (server) {
+            extern unsigned int __forcedDirtyTotal;
+            __forcedDirtyTotal++;
+            server->isDisplayDirty = true;
+            server->draw(true);
+        }
+    }
+
     while (1) {
         void checkSaveLoadState();
         checkSaveLoadState();

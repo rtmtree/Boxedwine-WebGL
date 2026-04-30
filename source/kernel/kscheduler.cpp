@@ -163,20 +163,17 @@ extern U64 sysCallTime;
 U64 elapsedTimeMIPS;
 U64 elapsedInstructionsMIPS;
 
-bool runSlice() {    
+bool runSlice() {
     runTimers();
 
     if (scheduledThreads.isEmpty())
         return false;
-    
+
     XServer* server = XServer::getServer(true);
     if (server) {
-        // Per-slice forcing of isDisplayDirty=true caused the X server to
-        // re-blit the entire desktop every slice, pushing ~1.9MB of pixels
-        // to WebGL per tick. That pinned FPS to ~10. Rely on the normal
-        // dirty-tracking inside XServer::draw() instead. Games that miss
-        // redraws (Basstour popup) can opt back in via a debug flag, but
-        // Diablo renders fine without it.
+        // Per-slice draw is fine here too; the per-frame force in
+        // mainloop() handles the case where the guest is sleeping
+        // and runSlice never gets called.
         server->draw();
     }
 

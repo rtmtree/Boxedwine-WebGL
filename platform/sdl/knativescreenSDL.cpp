@@ -33,10 +33,12 @@ extern "C" {
     unsigned int __putBitsOnWndDirty = 0;
     unsigned int __putBitsOnWndMaxW = 0;
     unsigned int __putBitsOnWndMaxH = 0;
+    unsigned int __forcedDirtyTotal = 0;
     EMSCRIPTEN_KEEPALIVE unsigned int diagPutBitsTotal() { return __putBitsOnWndTotal; }
     EMSCRIPTEN_KEEPALIVE unsigned int diagPutBitsDirty() { return __putBitsOnWndDirty; }
     EMSCRIPTEN_KEEPALIVE unsigned int diagPutBitsMaxW() { return __putBitsOnWndMaxW; }
     EMSCRIPTEN_KEEPALIVE unsigned int diagPutBitsMaxH() { return __putBitsOnWndMaxH; }
+    EMSCRIPTEN_KEEPALIVE unsigned int diagForcedDirty() { return __forcedDirtyTotal; }
 }
 #endif
 

@@ -1,20 +1,25 @@
 <!doctype html>
 <html lang="en-us">
-
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <title>BoxedWine</title>
-    <meta name="description" content="boxedwine emulator">
-    <meta name="keywords" content="emulator,wine,windows,x86,PC,emscripten,web assembly,wasm,boxedwine">
-    <meta name="author" content="James Bryant, Kevin O'Dwyer">
-    <link rel="stylesheet" type="text/css" href="boxedwine.css?v=2">
+    <meta name="description" content="boxedwine emulator" />
+    <meta
+      name="keywords"
+      content="emulator,wine,windows,x86,PC,emscripten,web assembly,wasm,boxedwine"
+    />
+    <meta name="author" content="James Bryant, Kevin O'Dwyer" />
+    <link rel="stylesheet" type="text/css" href="boxedwine.css?v=2" />
     <style>
       /* iPhone/iPad fix: lock the page to the visual viewport so Safari's
          URL bar animation doesn't crop the top/bottom of the canvas and
          the Start menu stays on screen. Mirrors boxedwine iphone.html. */
-      html, body {
+      html,
+      body {
         margin: 0;
         padding: 0;
         height: 100%;
@@ -37,156 +42,332 @@
         box-sizing: border-box;
       }
       /* Allow form controls to still receive taps / scroll as needed. */
-      input, textarea, button, label, select, .controls-panel, .controls-toggle-btn {
+      input,
+      textarea,
+      button,
+      label,
+      select,
+      .controls-panel,
+      .controls-toggle-btn {
         touch-action: manipulation;
       }
     </style>
-</head>
+  </head>
 
-<body>
-    <div id="spinner"
-        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; color: white; font-family: system-ui, -apple-system, sans-serif;">
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
-            <div style="width: 40px; height: 40px; position: relative;">
-                <div
-                    style="width: 40px; height: 40px; border: 3px solid rgba(255, 255, 255, 0.2); border-top-color: rgba(255, 255, 255, 0.9); border-radius: 50%; animation: iosSpin 0.8s linear infinite;">
-                </div>
-            </div>
-            <style>
-                @keyframes iosSpin {
-                    from {
-                        transform: rotate(0deg);
-                    }
-
-                    to {
-                        transform: rotate(360deg);
-                    }
-                }
-            </style>
-            <div id="status" style="margin-top: 20px; font-weight: 500;">Downloading...</div>
-            <div style="margin-top: 10px; width: 200px;">
-                <progress value="0" max="100" id="progress" style="width: 100%;"></progress>
-            </div>
+  <body>
+    <div
+      id="spinner"
+      style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.95);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        color: white;
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+      "
+    >
+      <div
+        style="
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+        "
+      >
+        <div style="width: 40px; height: 40px; position: relative">
+          <div
+            style="
+              width: 40px;
+              height: 40px;
+              border: 3px solid rgba(255, 255, 255, 0.2);
+              border-top-color: rgba(255, 255, 255, 0.9);
+              border-radius: 50%;
+              animation: iosSpin 0.8s linear infinite;
+            "
+          ></div>
         </div>
+        <style>
+          @keyframes iosSpin {
+            from {
+              transform: rotate(0deg);
+            }
+
+            to {
+              transform: rotate(360deg);
+            }
+          }
+        </style>
+        <div id="status" style="margin-top: 20px; font-weight: 500">
+          Downloading...
+        </div>
+        <div style="margin-top: 10px; width: 200px">
+          <progress
+            value="0"
+            max="100"
+            id="progress"
+            style="width: 100%"
+          ></progress>
+        </div>
+      </div>
     </div>
     <div>
-        <div id="controlsPanel" class="controls-panel collapsed">
-            <div class="controls-container">
-                <button id="startbtn" class="ios-button" style="display: none" onclick="start()">Start</button>
-                <button id="uploadbtn" class="ios-button" style="display: none"
-                    onclick="document.getElementById('upload').click()">Add File(s)</button>
-                <input style="display: none" id="upload" name="upload"
-                    onclick="document.getElementById('uploadbtn').click();"
-                    onchange="startWithFiles(event.target.files);" type="file" multiple />
-                <button id="downloadbtn" class="ios-button" style="display: none" onclick="buildGetFilesModal();">Get
-                    File(s)</button>
-                <button id="savestatebtn" class="ios-button" style="display: none" onclick="saveState();">Save
-                    State</button>
-                <button id="loadstatebtn" class="ios-button" style="display: none"
-                    onclick="document.getElementById('loadstatefile').click();">Load State</button>
-                <input style="display: none" id="loadstatefile" type="file" accept=".boxedstate"
-                    onchange="loadState(event.target.files[0]);" />
-                <button id="persistpcbtn" class="ios-button" style="display: none" onclick="persistPcStorage();"
-                    title="Save current PC state to browser storage. It will auto-load next time you open this page.">Persist
-                    PC Storage</button>
-                <button id="clearpersistbtn" class="ios-button" style="display: none"
-                    onclick="clearPersistedPcStorage();" title="Clear the auto-loaded persisted PC state.">Clear
-                    Persisted</button>
-                <a style="display: none" id="modalLink" href="#openModal">Open</a>
-                <a style="display: none" id="modalLinkExe" href="#openModalExe">Open</a>
+      <div id="controlsPanel" class="controls-panel collapsed">
+        <div class="controls-container">
+          <button
+            id="startbtn"
+            class="ios-button"
+            style="display: none"
+            onclick="start()"
+          >
+            Start
+          </button>
+          <button
+            id="uploadbtn"
+            class="ios-button"
+            style="display: none"
+            onclick="document.getElementById('upload').click()"
+          >
+            Add File(s)
+          </button>
+          <input
+            style="display: none"
+            id="upload"
+            name="upload"
+            onclick="document.getElementById('uploadbtn').click()"
+            onchange="startWithFiles(event.target.files)"
+            type="file"
+            multiple
+          />
+          <button
+            id="downloadbtn"
+            class="ios-button"
+            style="display: none"
+            onclick="buildGetFilesModal()"
+          >
+            Get File(s)
+          </button>
+          <button
+            id="savestatebtn"
+            class="ios-button"
+            style="display: none"
+            onclick="saveState()"
+          >
+            Save State
+          </button>
+          <button
+            id="loadstatebtn"
+            class="ios-button"
+            style="display: none"
+            onclick="document.getElementById('loadstatefile').click()"
+          >
+            Load State
+          </button>
+          <input
+            style="display: none"
+            id="loadstatefile"
+            type="file"
+            accept=".boxedstate"
+            onchange="loadState(event.target.files[0])"
+          />
+          <button
+            id="persistpcbtn"
+            class="ios-button"
+            style="display: none"
+            onclick="persistPcStorage()"
+            title="Save current PC state to browser storage. It will auto-load next time you open this page."
+          >
+            Persist PC Storage
+          </button>
+          <button
+            id="clearpersistbtn"
+            class="ios-button"
+            style="display: none"
+            onclick="clearPersistedPcStorage()"
+            title="Clear the auto-loaded persisted PC state."
+          >
+            Clear Persisted
+          </button>
+          <a style="display: none" id="modalLink" href="#openModal">Open</a>
+          <a style="display: none" id="modalLinkExe" href="#openModalExe"
+            >Open</a
+          >
 
-                <div class="checkbox-group">
-                    <label class="ios-checkbox-label" id="sound-checkbox" style="display: none">
-                        <input type="checkbox" id="soundToggle" onclick="toggleSound();" /> Enable Sound
-                    </label>
-                    <label class="ios-checkbox-label">
-                        <input type="checkbox" id="pointerLock" checked> Lock/hide mouse pointer
-                    </label>
-                    <input type="checkbox" id="disableMouseTracking" style="display:none">
-                    <label class="ios-checkbox-label">
-                        <input type="checkbox" id="showFPS" checked> Show FPS
-                    </label>
-                    <label class="ios-checkbox-label">
-                        <input type="checkbox" id="showConsole" onclick="toggleConsole();" checked> Show console
-                    </label>
-                    <label class="ios-checkbox-label">
-                        <input type="checkbox" id="resize"> Resize canvas
-                    </label>
-                    <input type="button" class="ios-button" style="margin-top: 10px;" value="Fullscreen"
-                        onclick="Module.requestFullscreen(document.getElementById('pointerLock').checked, document.getElementById('resize').checked)">
-                </div>
+          <div class="checkbox-group">
+            <label
+              class="ios-checkbox-label"
+              id="sound-checkbox"
+              style="display: none"
+            >
+              <input type="checkbox" id="soundToggle" onclick="toggleSound()" />
+              Enable Sound
+            </label>
+            <input
+              type="checkbox"
+              id="disableMouseTracking"
+              style="display: none"
+            />
+            <label class="ios-checkbox-label">
+              <input type="checkbox" id="showFPS" /> Show FPS
+            </label>
+
+            <!-- hidden area -->
+            <div style="display: none">
+              <label class="ios-checkbox-label">
+                <input type="checkbox" id="pointerLock" checked /> Lock/hide
+                mouse pointer
+              </label>
+              <label class="ios-checkbox-label">
+                <input
+                  type="checkbox"
+                  id="showConsole"
+                  onclick="toggleConsole()"
+                  checked
+                />
+                Show console
+              </label>
+              <label class="ios-checkbox-label">
+                <input type="checkbox" id="resize" /> Resize canvas
+              </label>
             </div>
+            <input
+              type="button"
+              class="ios-button"
+              style="margin-top: 10px"
+              value="Fullscreen"
+              onclick="
+                Module.requestFullscreen(
+                  document.getElementById('pointerLock').checked,
+                  document.getElementById('resize').checked,
+                )
+              "
+            />
+          </div>
         </div>
-        <button id="controlsToggleBtn" class="controls-toggle-btn" onclick="toggleControls()" style="background-color: rgba(0, 0, 0, 0.6)">☰</button>
+      </div>
+      <button
+        id="controlsToggleBtn"
+        class="controls-toggle-btn"
+        onclick="toggleControls()"
+        style="background-color: rgba(0, 0, 0, 0.6)"
+      >
+        ☰
+      </button>
 
-        <script>
-            function toggleControls() {
-                var panel = document.getElementById('controlsPanel');
-                var btn = document.getElementById('controlsToggleBtn');
-                if (panel.classList.contains('collapsed')) {
-                    panel.classList.remove('collapsed');
-                    btn.innerHTML = '↑';
-                    btn.style.backgroundColor = '#000000';
-                } else {
-                    panel.classList.add('collapsed');
-                    btn.innerHTML = '☰';
-                    btn.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
-                }
-            }
-            document.addEventListener('DOMContentLoaded', () => {
-                var startBtn = document.getElementById('startbtn');
-                if (startBtn) {
-                    startBtn.addEventListener('click', () => {
-                        var panel = document.getElementById('controlsPanel');
-                        var btn = document.getElementById('controlsToggleBtn');
-                        panel.classList.add('collapsed');
-                        btn.innerHTML = '☰';
-                        btn.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
-                    });
-                }
+      <script>
+        function toggleControls() {
+          var panel = document.getElementById("controlsPanel");
+          var btn = document.getElementById("controlsToggleBtn");
+          if (panel.classList.contains("collapsed")) {
+            panel.classList.remove("collapsed");
+            btn.innerHTML = "↑";
+            btn.style.backgroundColor = "#000000";
+          } else {
+            panel.classList.add("collapsed");
+            btn.innerHTML = "☰";
+            btn.style.backgroundColor = "rgba(0, 0, 0, 0.6)";
+          }
+        }
+        document.addEventListener("DOMContentLoaded", () => {
+          var startBtn = document.getElementById("startbtn");
+          if (startBtn) {
+            startBtn.addEventListener("click", () => {
+              var panel = document.getElementById("controlsPanel");
+              var btn = document.getElementById("controlsToggleBtn");
+              panel.classList.add("collapsed");
+              btn.innerHTML = "☰";
+              btn.style.backgroundColor = "rgba(0, 0, 0, 0.6)";
             });
-        </script>
-        <div id="dropzone" style="position:relative">
-            <div class="emscripten_border">
-                <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
-            </div>
-            <button id="installDoneBtn" style="display: none;" onclick="persistPcStorage()"
-                title="Saves the current emulator state to browser storage so it auto-loads next time.">
-                Press this when game installation is done
-            </button>
-            <div id="fpsOverlay"
-                style="position:absolute;top:4px;right:8px;padding:4px 8px;font:bold 14px/1.2 monospace;color:#0f0;background:rgba(0,0,0,0.65);border:1px solid #0f0;border-radius:4px;pointer-events:none;z-index:100;display:none">
-                <div id="fpsLine">FPS: --</div>
-                <div id="mipsLine" style="font-size:11px;color:#8f8">MIPS: --</div>
-            </div>
+          }
+        });
+      </script>
+      <div id="dropzone" style="position: relative">
+        <div class="emscripten_border">
+          <canvas
+            class="emscripten"
+            id="canvas"
+            oncontextmenu="event.preventDefault()"
+          ></canvas>
         </div>
+        <button
+          id="installDoneBtn"
+          style="display: none"
+          onclick="persistPcStorage()"
+          title="Saves the current emulator state to browser storage so it auto-loads next time."
+        >
+          Press this when game installation is done
+        </button>
+        <div
+          id="fpsOverlay"
+          style="
+            position: absolute;
+            top: 4px;
+            right: 8px;
+            padding: 4px 8px;
+            font: bold 14px/1.2 monospace;
+            color: #0f0;
+            background: rgba(0, 0, 0, 0.65);
+            border: 1px solid #0f0;
+            border-radius: 4px;
+            pointer-events: none;
+            z-index: 100;
+            display: none;
+          "
+        >
+          <div id="fpsLine">FPS: --</div>
+          <div id="mipsLine" style="font-size: 11px; color: #8f8">MIPS: --</div>
+        </div>
+      </div>
+      <div>
+        <textarea
+          class="emscripten"
+          id="output"
+          rows="8"
+          style="display: none"
+        ></textarea>
+      </div>
+      <div id="openModal" class="modalDialog">
         <div>
-            <textarea class="emscripten" id="output" rows="8" style="display: none"></textarea>
+          <a
+            href="#close"
+            title="Close"
+            class="close"
+            onclick="closeGetFilesModal()"
+            >X</a
+          >
+          <div>
+            <h3>Get File(s)</h3>
+            <input id="selectedItem" type="text" size="50" readonly />
+            <button onclick="extract()">Get</button>
+          </div>
+          <div id="tree" class="scroll-style"></div>
+          <div>
+            <h3 id="loadStatus">Loading...</h3>
+          </div>
         </div>
-        <div id="openModal" class="modalDialog">
-            <div> <a href="#close" title="Close" class="close" onclick="closeGetFilesModal();">X</a>
-                <div>
-                    <h3>Get File(s)</h3>
-                    <input id="selectedItem" type="text" size="50" readonly>
-                    <button onclick="extract();">Get</button>
-                </div>
-                <div id="tree" class="scroll-style">
-                </div>
-                <div>
-                    <h3 id="loadStatus">Loading...</h3>
-                </div>
-            </div>
+      </div>
+      <div id="openModalExe" class="modalDialog">
+        <div>
+          <a id="openModalExeClick" href="#close" title="Close" class="close"
+            >X</a
+          >
+          <div>
+            <h3>Execute</h3>
+            <div id="message"></div>
+            <div id="items" class="scroll-style"></div>
+          </div>
         </div>
-        <div id="openModalExe" class="modalDialog">
-            <div> <a id="openModalExeClick" href="#close" title="Close" class="close">X</a>
-                <div>
-                    <h3>Execute</h3>
-                    <div id="message"></div>
-                    <div id="items" class="scroll-style"></div>
-                </div>
-            </div>
-        </div>
-        <hr>
+      </div>
+      <hr />
     </div>
     <script>
       function toggleZoom(checkbox) {
@@ -309,7 +490,7 @@
                     get: function () {
                       return mockH;
                     },
-                  }
+                  },
                 );
               } catch (e) {}
             } catch (e) {}
@@ -397,11 +578,11 @@
                   document.querySelector(".emscripten_border") || document.body;
                 var cssW = Math.min(
                   border.clientWidth || window.innerWidth,
-                  border.clientHeight || window.innerHeight
+                  border.clientHeight || window.innerHeight,
                 );
                 var dpr = Math.max(
                   1,
-                  Math.round(window.devicePixelRatio || originalDPR || 1)
+                  Math.round(window.devicePixelRatio || originalDPR || 1),
                 );
                 canvas.style.width = Math.round(cssW) + "px";
                 canvas.style.height = Math.round(cssW) + "px";
@@ -452,10 +633,9 @@
       })();
     </script>
 
-    
     <script src="boxedwine-shell.js"></script>
     <script async type="text/javascript" src="boxedwine.js"></script>
-<script></script>
+    <script></script>
     <script>
       function hideStartupOverlay() {
         try {
@@ -681,7 +861,7 @@
           // Maintain 4:3 aspect ratio and fit within availableW x availableH
           var targetCssW = Math.min(
             availableW,
-            Math.round((availableH * 4) / 3)
+            Math.round((availableH * 4) / 3),
           );
           var targetCssH = Math.round((targetCssW * 3) / 4);
 
@@ -764,7 +944,7 @@
         function (e) {
           e.preventDefault();
         },
-        { passive: false }
+        { passive: false },
       );
       // Toggle log visibility (hidden by default)
       const toggle = document.getElementById("toggleLog");
@@ -793,6 +973,5 @@
         });
       }
     </script>
-</body>
-
+  </body>
 </html>
