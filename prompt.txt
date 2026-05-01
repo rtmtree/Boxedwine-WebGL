@@ -57,3 +57,18 @@ if there is any option you want me to choose, just pick the one you see fit and 
 
 
 
+
+
+let's start to make it support 64 bit by following the ./PLAN_BOXEDWINE_64BIT.md
+
+* keep boxedwine exprience (fast loading speed)
+I put 64 bit game in the zip for you
+
+try here
+http://localhost:8083/boxedwine.html?app=boxedwine&p=%2Fhome%2Fusername%2FGameTC%2FWin64%2FGameCompanyTycoonV0.1.0.exe&sound=false&cpu=p3&cnc=1&dmt=false&open_in_browser=1.  
+or Win32 for Win64 for testing 32 bit
+keep working until the game render on that page
+if there is any option you want me to choose, just pick the one you see fit and go forward.
+
+
+
